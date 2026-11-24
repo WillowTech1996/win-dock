@@ -48,9 +48,11 @@ Test setup: laptop plus one external display, both arrangements (external above/
 
 ## Phase 3: Daily-driver polish (ongoing)
 
+Done so far (2026-11-24): taskbar reveals at its screen edge over a fullscreen app (4pt zone, 0.3s dwell); the system Dock is moved to an edge WinDock does not use while hidden, because fullscreen apps reveal it regardless of `autohide-delay`.
+
 From upstream `ROADMAP.md` and `IDEAS.md`, in the order I'd want them:
 
-1. Fix "minimized window doesn't restore when clicking its preview".
+1. Fix "minimized window doesn't restore when clicking its preview". Worked once on 2026-11-24 (Claude) after waiting for the restore and logging each AX step; also fixed on the way: windows on other Spaces (focus/raise/un-minimize now reach them through the remote-token scan, so clicking an app from a fullscreen Space switches to it). Keep open until it has held up for a few days.
 2. Taskbar grouping modes (always combine / combine when full / never combine).
 3. Keyboard navigation in previews; global hotkeys for the Nth item.
 4. Split `SettingsView.swift` (1.5k lines) and `AppManager.swift` (1.1k lines).

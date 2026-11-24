@@ -476,7 +476,7 @@ struct GeneralSettingsTab: View {
                     .font(.caption)
             }
             
-            Text("Your own Dock settings are saved first and put back when WinDock quits, including after a crash. A Dock hidden by hand is also restored on quit.")
+            Text("Your own Dock settings, including which edge it is on, are saved first and put back when WinDock quits, including after a crash. While WinDock runs, the Dock is moved to an edge WinDock does not use, because fullscreen apps still reveal it at its own edge.")
                 .foregroundStyle(.secondary)
                 .font(.caption)
         }

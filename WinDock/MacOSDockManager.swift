@@ -13,6 +13,10 @@ final class MacOSDockManager: ObservableObject {
     struct SavedSettings: Codable, Equatable {
         var autohide: Bool?
         var autohideDelay: Double?
+        /// The Dock edge the user had, and whether WinDock moved it. Markers saved by earlier versions have
+        /// neither, which reads as "not moved".
+        var orientation: String?
+        var changedOrientation: Bool?
     }
 
     static let savedKey = "WinDock.savedSystemDock"
@@ -40,22 +44,34 @@ final class MacOSDockManager: ObservableObject {
 
     // MARK: - Pure helpers (unit-tested)
 
-    static func hideCommands() -> [String] {
+    /// A fullscreen app reveals the Dock at its edge no matter the auto-hide delay, which would draw it over
+    /// WinDock's bar. Moving the Dock to an edge WinDock does not use keeps the two apart.
+    static func dockEdge(avoiding position: DockPosition) -> String {
+        position == .left ? "right" : "left"
+    }
+
+    static func hideCommands(edge: String) -> [String] {
         [
             "defaults write com.apple.dock autohide -bool true",
             "defaults write com.apple.dock autohide-delay -float \(hiddenDelay)",
+            "defaults write com.apple.dock orientation -string \(edge)",
             "killall Dock"
         ]
     }
 
     static func restoreCommands(_ saved: SavedSettings) -> [String] {
-        [
+        var commands = [
             saved.autohide.map { "defaults write com.apple.dock autohide -bool \($0)" }
                 ?? "defaults delete com.apple.dock autohide 2>/dev/null || true",
             saved.autohideDelay.map { "defaults write com.apple.dock autohide-delay -float \($0)" }
-                ?? "defaults delete com.apple.dock autohide-delay 2>/dev/null || true",
-            "killall Dock"
+                ?? "defaults delete com.apple.dock autohide-delay 2>/dev/null || true"
         ]
+        if saved.changedOrientation == true {
+            commands.append(saved.orientation.map { "defaults write com.apple.dock orientation -string \($0)" }
+                ?? "defaults delete com.apple.dock orientation 2>/dev/null || true")
+        }
+        commands.append("killall Dock")
+        return commands
     }
 
     /// What to restore, given the Dock's current values when WinDock has not saved anything yet.
@@ -129,11 +145,18 @@ final class MacOSDockManager: ObservableObject {
 
     private func hide() -> Bool {
         // Save first: if anything below dies half way, the marker lets a later run put things back.
-        let saved = savedSettings ?? currentSettings()
+        var saved = savedSettings ?? currentSettings()
+        if saved.changedOrientation != true {
+            saved.orientation = readDockDefault("orientation")
+            saved.changedOrientation = true
+        }
         savedSettings = saved
-        if !isHiddenNow() {
-            guard executeShellCommands(Self.hideCommands()) else { return false }
-            AppLogger.shared.info("System Dock hidden; saved original settings: \(saved)")
+
+        let position = DockPosition(rawValue: UserDefaults.standard.string(forKey: "dockPosition") ?? "bottom") ?? .bottom
+        let edge = Self.dockEdge(avoiding: position)
+        if !isHiddenNow() || (readDockDefault("orientation") ?? "bottom") != edge {
+            guard executeShellCommands(Self.hideCommands(edge: edge)) else { return false }
+            AppLogger.shared.info("System Dock hidden on the \(edge) edge; saved original settings: \(saved)")
         }
         startWatchdog(saved)
         return true
