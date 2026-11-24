@@ -110,6 +110,9 @@ struct Main: App {
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+    /// `NSApp.delegate` is SwiftUI's wrapper under @NSApplicationDelegateAdaptor, so `NSApp.delegate as? AppDelegate`
+    /// is nil; use this instead.
+    private(set) static weak var shared: AppDelegate?
     var dockWindows: [DockWindow] = []
     var statusBarItem: NSStatusItem?
     @AppStorage("dockPosition") var dockPosition: DockPosition = .bottom
@@ -128,13 +131,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Registering the same defaults keeps both paths in agreement.
     static func registerDefaultSettings(in defaults: UserDefaults = .standard) {
         defaults.register(defaults: [
-            "enableWindowsResize": true
+            "enableWindowsResize": true,
+            MacOSDockManager.preferenceKey: false
         ])
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // As the unit-test host, don't put a second live taskbar on screen next to the user's.
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
+        AppDelegate.shared = self
         setGlobalErrorHandlers()
         AppDelegate.registerDefaultSettings()
 
@@ -174,6 +179,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         setupStatusBarItem()
         syncDockWindowsToScreens()
         
+        // Hide (or restore, after an earlier crash) the system Dock according to the setting
+        MacOSDockManager.shared.applyPreference()
+
         // Start WindowsResizeManager if enabled in settings
         if UserDefaults.standard.bool(forKey: "enableWindowsResize") {
             WindowsResizeManager.shared.start()
@@ -187,6 +195,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         
         // Register for notifications
         NotificationCenter.default.addObserver(self, selector: #selector(screenParametersDidChange), name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(systemDockDidChange), name: MacOSDockManager.didChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(userDefaultsDidChange), name: UserDefaults.didChangeNotification, object: nil)
         
         // Log that we've started
@@ -214,7 +223,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
     
     func applicationWillTerminate(_ notification: Notification) {
+        // The unit-test host shares the app's defaults; it must never touch the user's real Dock.
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         AppLogger.shared.info("Application will terminate")
+        MacOSDockManager.shared.restoreOnQuit()
         WindowsResizeManager.shared.stop()
         NotificationPositionManager.shared.stop()
     }
@@ -568,7 +580,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         dockWindows.removeAll { $0.targetDisplayID.map(changes.close.contains) ?? true }
 
         for screen in screens {
-            guard let id = screen.displayID, changes.create.contains(id) else { continue }
+            guard let id = screen.displayID else { continue }
+            guard changes.create.contains(id) else {
+                // A kept window may need a new frame (resolution, arrangement or Dock change).
+                dockWindows.first { $0.targetDisplayID == id }?.updatePosition()
+                continue
+            }
             let dockWindow = DockWindow(screen: screen)
             dockWindow.setFrame(dockFrame(for: dockPosition, screen: screen), display: true)
             dockWindow.show()
@@ -602,6 +619,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc private func screenParametersDidChange() {
         syncDockWindowsToScreens()
     }
+
+    /// Hiding or restoring the system Dock changes each screen's usable area, but macOS does not reliably
+    /// tell windows. The Dock restarts and settles over about a second, so reposition twice, after it.
+    @objc private func systemDockDidChange() {
+        for delay in [0.6, 2.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.dockWindows.forEach { $0.updatePosition() }
+                NotificationCenter.default.post(name: NSNotification.Name("WinDockPositionChanged"), object: nil)
+                AppLogger.shared.info("Repositioned taskbars after the system Dock changed: \(self?.dockWindows.map { "\($0.targetDisplayID ?? 0) \($0.frame)" }.joined(separator: "; ") ?? "")")
+            }
+        }
+    }
     
     @objc private func userDefaultsDidChange() {
         // Only update if dock-related settings have changed
@@ -631,7 +660,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // Static method that can be called from anywhere
     static func openSettingsWindow() {
         DispatchQueue.main.async {
-            if let delegate = NSApp.delegate as? AppDelegate {
+            if let delegate = AppDelegate.shared {
                 // Use the full implementation in the app delegate
                 delegate.openSettings()
             } else {

@@ -197,7 +197,7 @@ class SettingsManager: ObservableObject {
         
         // Remove all WinDock-related UserDefaults
         let keys = [
-            "dockPosition", "dockSize", "autoHide", "showOnAllSpaces", "taskbarPerDisplayWindows", "centerTaskbarIcons",
+            "dockPosition", "dockSize", "autoHide", "showOnAllSpaces", "taskbarPerDisplayWindows", "hideSystemDockWhileRunning", "centerTaskbarIcons",
             "showSystemTray", "showTaskView", "combineTaskbarButtons", "useSmallTaskbarButtons",
             "taskbarTransparency", "showLabels", "animationSpeed", "use24HourClock", "dateFormat",
             "searchAppChoice", "defaultBrowser", "defaultTerminal", "logLevel",

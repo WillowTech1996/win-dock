@@ -212,7 +212,7 @@ class DockWindow: NSPanel {
         let menu = NSMenu()
         // Position submenu
         let positionMenu = NSMenu()
-        guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
+        guard let appDelegate = AppDelegate.shared else { return }
         for position in DockPosition.allCases {
             let item = NSMenuItem(
                 title: position.displayName,
@@ -249,7 +249,7 @@ class DockWindow: NSPanel {
     @objc private func changePosition(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String,
               let position = DockPosition(rawValue: raw),
-              let appDelegate = NSApp.delegate as? AppDelegate else { return }
+              let appDelegate = AppDelegate.shared else { return }
         appDelegate.updateDockPosition(position)
     }
     
@@ -266,11 +266,18 @@ class DockWindow: NSPanel {
         updatePosition()
     }
     
-    private func updatePosition() {
-        guard let appDelegate = NSApp.delegate as? AppDelegate,
-              let screen = targetScreen else { return }
+    func updatePosition() {
+        guard let appDelegate = AppDelegate.shared, let screen = targetScreen else {
+            AppLogger.shared.warning("DockWindow.updatePosition skipped: delegate or screen unavailable (display \(targetDisplayID.map(String.init) ?? "unknown"))")
+            return
+        }
         let newFrame = dockFrame(for: appDelegate.dockPosition, screen: screen)
-        setFrame(newFrame, display: true, animate: false)
+        // Called on every UserDefaults change: do nothing visible unless the frame really moved.
+        let frameChanged = frame != newFrame
+        if frameChanged {
+            AppLogger.shared.info("Taskbar for display \(targetDisplayID.map(String.init) ?? "unknown") moved from \(frame) to \(newFrame)")
+            setFrame(newFrame, display: true, animate: false)
+        }
         
         // Update size constraints based on dock position
         let dockHeight = getDockHeight()
@@ -286,7 +293,7 @@ class DockWindow: NSPanel {
             maxSize = size
         }
         
-        setupTrackingArea()
+        if frameChanged { setupTrackingArea() }
     }
     
     func cleanup() {

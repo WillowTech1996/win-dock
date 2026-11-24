@@ -3,7 +3,7 @@ import AppKit
 import UserNotifications
 
 struct SettingsView: View {
-    @StateObject private var dockManager = MacOSDockManager()
+    @StateObject private var dockManager = MacOSDockManager.shared
     @StateObject private var settingsManager = SettingsManager()
     
     var body: some View {
@@ -108,6 +108,7 @@ struct GeneralSettingsTab: View {
     @AppStorage("paddingVertical") private var paddingVertical: Double = 0.0
     @AppStorage("paddingHorizontal") private var paddingHorizontal: Double = 0.0
     @AppStorage("enableWindowsResize") private var enableWindowsResize: Bool = true
+    @AppStorage("hideSystemDockWhileRunning") private var hideSystemDock = false
     
     let dockManager: MacOSDockManager
     
@@ -436,6 +437,9 @@ struct GeneralSettingsTab: View {
     
     private var dockManagementSection: some View {
         Section("macOS Dock Management") {
+            Toggle("Hide the Mac Dock while WinDock is running", isOn: $hideSystemDock)
+                .onChange(of: hideSystemDock) { _, _ in dockManager.applyPreference() }
+
             HStack {
                 Text("Status:")
                 Spacer()
@@ -472,7 +476,7 @@ struct GeneralSettingsTab: View {
                     .font(.caption)
             }
             
-            Text("Hide the macOS dock for a cleaner Windows 11-like experience.")
+            Text("Your own Dock settings are saved first and put back when WinDock quits, including after a crash. A Dock hidden by hand is also restored on quit.")
                 .foregroundStyle(.secondary)
                 .font(.caption)
         }

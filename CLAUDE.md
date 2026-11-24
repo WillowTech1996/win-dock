@@ -67,6 +67,7 @@ Key files in `WinDock/`:
 | `SettingsView.swift`, `SettingsManager.swift`, `SettingsHelper.swift` | Settings UI (~1,500 lines) and `UserDefaults`/`@AppStorage` persistence |
 | `StartMenuView.swift`, `SearchButton.swift`, `SystemTrayView.swift`, `UserProfileManager.swift` | Start menu, search launcher (Spotlight/Alfred/Raycast), tray (clock, battery, network) |
 | `NotificationPositionManager.swift` | Repositions system notification banners via AX |
+| `MacOSDockManager.swift` | Hides the system Dock (auto-hide + 1000s delay) and restores the user's own values. Saves originals first (the saved copy is the crash marker), restores on quit, and a detached `sh` watchdog restores after a crash. Never touch the Dock prefs without going through it |
 | `PrivateAPIHealthCheck.swift` | `dlsym` probe of the private symbols at launch; degrades with a log line |
 
 ### Multi-monitor
@@ -86,6 +87,7 @@ Needs Accessibility (core) and Automation/Apple Events (activate/hide/quit apps)
 - Route every dock refresh through `coordinator.scheduleUpdate(reason:)`. Don't call `updateDockApps()` directly and don't add timers.
 - Heavy work goes in `Task.detached` or the `WindowEnumerationService` actor; hop back to `@MainActor` only for UI state.
 - Compute SwiftUI materials synchronously (see `MaterialCache` in `DockView`); no async material work.
+- Never use `NSApp.delegate as? AppDelegate`: under `@NSApplicationDelegateAdaptor` it is always nil. Use `AppDelegate.shared`.
 - Log with `AppLogger.shared.info/debug/warning/error`, always with enough context to find the app/window involved.
 - Window filtering is derived from AltTab (`isValidStandardWindow`): min size 100x50, standard/dialog subroles, special-cased apps. Add app quirks to `isSpecialApp()`.
 - Automation error `-1743` means the Automation permission is missing for that target app.
