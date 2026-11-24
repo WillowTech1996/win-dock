@@ -80,5 +80,5 @@ Explicitly out of scope for now: widgets board, theme marketplace, Start-menu fi
 
 - Build result: Xcode 27.2, Debug, CODE_SIGNING_ALLOWED=NO: BUILD SUCCEEDED (2026-11-24). Signed run not yet tried.
 - Tests passing/failing: unit tests 33 passed, 0 failed (unsigned, `-only-testing:WinDockTests`). UI tests not run.
-- What works on both displays:
-- What is broken:
+- What works on both displays: taskbar on both screens; with Accessibility granted to the new bundle ID, maximized windows stop above the bar on both external displays (2026-11-24).
+- What is broken: fresh installs never started WindowsResizeManager because `enableWindowsResize` was only an @AppStorage default (fixed by registering defaults). Rebuilding under a new bundle ID needs Accessibility re-granted.

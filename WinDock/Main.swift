@@ -121,10 +121,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var lastPaddingHorizontal: Double = 0.0
     private var lastShowOnAllSpaces = true
     
+    /// `@AppStorage` defaults are not written to `UserDefaults`, so code that reads the key
+    /// directly (`UserDefaults.standard.bool(forKey:)`) would see `false` on a fresh install.
+    /// Registering the same defaults keeps both paths in agreement.
+    static func registerDefaultSettings(in defaults: UserDefaults = .standard) {
+        defaults.register(defaults: [
+            "enableWindowsResize": true
+        ])
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // As the unit-test host, don't put a second live taskbar on screen next to the user's.
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         setGlobalErrorHandlers()
+        AppDelegate.registerDefaultSettings()
 
         // Verify the private APIs this build links against still exist on this macOS.
         Task.detached(priority: .utility) {
