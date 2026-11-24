@@ -61,34 +61,74 @@ private func makeWindowKey(windowID: CGWindowID, psn: inout ProcessSerialNumber)
     SLPSPostEventRecordTo(&psn, &bytes)
 }
 
-/// Raise a window using AXUIElement kAXRaiseAction
-private func raiseWindowViaAX(windowID: CGWindowID, pid: pid_t) {
+/// The AX element for a window, including windows on other Spaces. `kAXWindowsAttribute` only lists the current
+/// Space (so from a fullscreen Space it omits everything else); those windows are reached with a remote token,
+/// the same scan the window enumeration uses. Blocks for up to ~0.1s in that case, so call it off the main thread.
+private func axWindowElement(windowID: CGWindowID, pid: pid_t) -> AXUIElement? {
     let axApp = AXUIElementCreateApplication(pid)
     var windowElements: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowElements) == .success,
-          let windows = windowElements as? [AXUIElement] else { return }
-    for window in windows {
-        var wid: CGWindowID = 0
-        if _AXUIElementGetWindow(window, &wid) == .success, wid == windowID {
-            AXUIElementPerformAction(window, kAXRaiseAction as CFString)
-            break
+    if AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowElements) == .success,
+       let windows = windowElements as? [AXUIElement] {
+        for window in windows {
+            var wid: CGWindowID = 0
+            if _AXUIElementGetWindow(window, &wid) == .success, wid == windowID { return window }
         }
+    }
+
+    var token = Data(count: 20)
+    token.replaceSubrange(0..<4, with: withUnsafeBytes(of: pid) { Data($0) })
+    token.replaceSubrange(4..<8, with: withUnsafeBytes(of: Int32(0)) { Data($0) })
+    token.replaceSubrange(8..<12, with: withUnsafeBytes(of: Int32(0x636f636f)) { Data($0) })
+    for elementID: UInt in 0..<1000 {
+        token.replaceSubrange(12..<20, with: withUnsafeBytes(of: elementID) { Data($0) })
+        guard let element = _AXUIElementCreateWithRemoteToken(token as CFData)?.takeRetainedValue() else { continue }
+        var wid: CGWindowID = 0
+        if _AXUIElementGetWindow(element, &wid) == .success, wid == windowID { return element }
+    }
+    return nil
+}
+
+/// Raise a window using AXUIElement kAXRaiseAction. For a window on another Space this is what makes macOS switch to it.
+private func raiseWindowViaAX(windowID: CGWindowID, pid: pid_t) {
+    guard let window = axWindowElement(windowID: windowID, pid: pid) else {
+        AppLogger.shared.warning("Raise window \(windowID): no AX element for pid \(pid), even through the remote-token scan")
+        return
+    }
+    let result = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+    if result != .success {
+        AppLogger.shared.warning("Raise window \(windowID): AXRaise failed (AX error \(result.rawValue))")
     }
 }
 
-/// Unminimize a specific window by ID using AX API
-private func unminimizeWindowByID(_ windowID: CGWindowID, pid: pid_t) {
-    let axApp = AXUIElementCreateApplication(pid)
-    var windowElements: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowElements) == .success,
-          let windows = windowElements as? [AXUIElement] else { return }
-    for window in windows {
-        var wid: CGWindowID = 0
-        if _AXUIElementGetWindow(window, &wid) == .success, wid == windowID {
-            AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, false as CFTypeRef)
-            break
-        }
+/// Unminimize a specific window by ID using AX API, then wait until it has left the Dock.
+/// Blocks for up to ~0.5s, so call it off the main thread. Returns whether the window is no longer minimized.
+/// The wait matters: the raise/key calls that follow are ignored while the window is still animating out.
+@discardableResult
+private func unminimizeWindowByID(_ windowID: CGWindowID, pid: pid_t) -> Bool {
+    guard let window = axWindowElement(windowID: windowID, pid: pid) else {
+        AppLogger.shared.warning("Unminimize window \(windowID): no AX element for pid \(pid), even through the remote-token scan")
+        return false
     }
+
+    func isMinimized(_ window: AXUIElement) -> Bool {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &value) == .success else { return false }
+        return (value as? Bool) ?? false
+    }
+
+    guard isMinimized(window) else { return true }
+
+    let setResult = AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, false as CFTypeRef)
+    guard setResult == .success else {
+        AppLogger.shared.warning("Unminimize window \(windowID): AXMinimized write failed (AX error \(setResult.rawValue))")
+        return false
+    }
+    for _ in 0..<10 {
+        usleep(50_000)
+        if !isMinimized(window) { return true }
+    }
+    AppLogger.shared.warning("Unminimize window \(windowID): still minimized 0.5s after a successful write")
+    return false
 }
 
 /// Unminimize all windows for an app using AX API
@@ -796,8 +836,19 @@ class AppManager: ObservableObject {
         // Step 2: Focus using private APIs on background queue (no AppleScript)
         if windowID > 0 {
             DispatchQueue.global(qos: .userInitiated).async {
-                unminimizeWindowByID(windowID, pid: pid)
+                let restored = unminimizeWindowByID(windowID, pid: pid)
                 focusWindowWithPrivateAPIs(windowID: windowID, pid: pid)
+                AppLogger.shared.info("Focused window \(windowID) (pid \(pid)); not minimized afterwards: \(restored)")
+
+                // A window on another Space is invisible to AX, and the private calls above do not switch out of
+                // a fullscreen Space. If the app still is not frontmost shortly after, reopen it like a Dock click.
+                usleep(400_000)
+                if !runningApp.isActive {
+                    DispatchQueue.main.async {
+                        AppLogger.shared.info("Window \(windowID) did not come forward; reopening \(app.name) via LaunchServices")
+                        self.launchApp(app)
+                    }
+                }
             }
         } else {
             // No specific window, just activate the app
@@ -979,11 +1030,27 @@ class AppManager: ObservableObject {
                 // Find and focus the frontmost window
                 if let frontWindowID = getFrontWindowID(pid: pid) {
                     focusWindowWithPrivateAPIs(windowID: frontWindowID, pid: pid)
+                } else if let known = app.windows.first(where: { !$0.isMinimized }) ?? app.windows.first {
+                    // AX lists nothing on this Space, but the dock already knows a window (enumeration reaches
+                    // other Spaces). Raising it through its remote-token element makes macOS switch to its Space.
+                    unminimizeWindowByID(known.windowID, pid: pid)
+                    focusWindowWithPrivateAPIs(windowID: known.windowID, pid: pid)
+                    usleep(400_000)
+                    if !runningApp.isActive {
+                        DispatchQueue.main.async {
+                            AppLogger.shared.info("activateApp for \(app.name): window \(known.windowID) did not come forward, reopening via LaunchServices")
+                            self.launchApp(app)
+                        }
+                    }
                 } else {
-                    // No AX windows: reopen through LaunchServices so the app can create one,
-                    // the way a Dock click does. Activation alone only shows its menu bar.
+                    // No AX windows on this Space: the app may have none, or its windows may be on another Space
+                    // (AX cannot see those, e.g. while a fullscreen app owns this one). macOS also ignores
+                    // activate() from an app that is not frontmost, which a non-activating taskbar never is.
+                    // A LaunchServices reopen, the way a Dock click does it, lets the app create a window or
+                    // switches to the Space that has its windows.
                     DispatchQueue.main.async {
-                        if app.windows.isEmpty, app.url != nil {
+                        if app.url ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: app.bundleIdentifier) != nil {
+                            AppLogger.shared.info("activateApp for \(app.name): no AX window on this Space, reopening via LaunchServices")
                             self.launchApp(app)
                         } else {
                             self.activateCooperatively(runningApp)
