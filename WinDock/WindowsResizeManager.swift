@@ -164,6 +164,7 @@ class WindowsResizeManager: ObservableObject {
         // Settings/screen-change notifications drive prompt adjustments; this is a low-frequency
         // safety sweep. The scan is skipped entirely when resizing is disabled.
         monitoringTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            NotificationCenter.default.post(name: AppManager.windowPositionsMayHaveChanged, object: nil)
             self?.resizeAndMoveWindowsIfNeeded()
         }
     }

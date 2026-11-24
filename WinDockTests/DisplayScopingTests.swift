@@ -92,4 +92,49 @@ final class DisplayScopingTests: XCTestCase {
         XCTAssertTrue(changes.create.isEmpty)
         XCTAssertTrue(changes.close.isEmpty)
     }
+
+    // MARK: - Windows moving between displays
+
+    func testWindowCrossingToTheOtherDisplayIsReported() {
+        let w = window(1, CGRect(x: 100, y: 100, width: 800, height: 600))   // on the left display
+
+        let update = AppManager.windowsWithCurrentPositions(
+            [w], currentBounds: [1: CGRect(x: 2200, y: 100, width: 800, height: 600)], displays: displays)
+
+        XCTAssertTrue(update.displayChanged)
+        XCTAssertEqual(update.windows[0].bounds.minX, 2200)
+    }
+
+    func testMovingWithinADisplayIsNotAChange() {
+        let w = window(1, CGRect(x: 100, y: 100, width: 800, height: 600))
+
+        let update = AppManager.windowsWithCurrentPositions(
+            [w], currentBounds: [1: CGRect(x: 300, y: 200, width: 800, height: 600)], displays: displays)
+
+        XCTAssertFalse(update.displayChanged)
+    }
+
+    func testWindowHalfAcrossFollowsItsCenter() {
+        // Left edge on the left display, center already on the right display.
+        let w = window(1, CGRect(x: 100, y: 100, width: 800, height: 600))
+
+        let update = AppManager.windowsWithCurrentPositions(
+            [w], currentBounds: [1: CGRect(x: 1700, y: 100, width: 800, height: 600)], displays: displays)
+
+        XCTAssertTrue(update.displayChanged, "center x = 2100 is on the right display")
+    }
+
+    func testUnknownWindowsAndUnchangedPositionsAreLeftAlone() {
+        let w = window(1, CGRect(x: 100, y: 100, width: 800, height: 600))
+
+        let update = AppManager.windowsWithCurrentPositions([w], currentBounds: [2: .zero], displays: displays)
+
+        XCTAssertFalse(update.displayChanged)
+        XCTAssertEqual(update.windows[0].bounds, w.bounds)
+    }
+
+    func testDisplayIndexIsNilForACenterOnNoDisplay() {
+        XCTAssertNil(AppManager.displayIndex(of: CGRect(x: -9000, y: -9000, width: 800, height: 600), in: displays))
+        XCTAssertEqual(AppManager.displayIndex(of: CGRect(x: 100, y: 100, width: 800, height: 600), in: displays), 0)
+    }
 }

@@ -314,7 +314,7 @@ struct DockApp: Identifiable, Hashable {
 struct WindowInfo {
     let title: String
     let windowID: CGWindowID
-    let bounds: CGRect
+    var bounds: CGRect
     let isMinimized: Bool
     let isOnScreen: Bool
 
@@ -359,10 +359,97 @@ class AppManager: ObservableObject {
     // Bundle ID for WinDock itself
     private let winDockBundleID = Bundle.main.bundleIdentifier ?? "com.windock.app"
 
+    /// Posted when a window may have moved without any event the dock listens to (see `refreshWindowPositions`).
+    static let windowPositionsMayHaveChanged = Notification.Name("WinDock.windowPositionsMayHaveChanged")
+
+    private var windowDragMonitor: Any?
+    private var lastPositionCheck = Date.distantPast
+
+    // MARK: - Windows moving between displays
+
+    /// The display a window is on (index into `displays`): the one holding its center. Nil if it is on none.
+    nonisolated static func displayIndex(of bounds: CGRect, in displays: [CGRect]) -> Int? {
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        return displays.firstIndex { $0.contains(center) }
+    }
+
+    /// `windows` with their positions brought up to date, and whether any of them is now on a different display.
+    nonisolated static func windowsWithCurrentPositions(_ windows: [WindowInfo], currentBounds: [CGWindowID: CGRect],
+                                                        displays: [CGRect]) -> (windows: [WindowInfo], displayChanged: Bool) {
+        var result = windows
+        var displayChanged = false
+        for index in result.indices {
+            guard let now = currentBounds[result[index].windowID], now != result[index].bounds else { continue }
+            if displayIndex(of: result[index].bounds, in: displays) != displayIndex(of: now, in: displays) {
+                displayChanged = true
+            }
+            result[index].bounds = now
+        }
+        return (result, displayChanged)
+    }
+
+    /// Moving a window to another display posts nothing the dock listens to, and re-enumerating every window
+    /// for it would be slow (and cached). The positions are cheap to read, so check them while a window is being
+    /// dragged and re-publish the apps only when a window actually changed display, so each taskbar re-filters at once.
+    func refreshWindowPositions() {
+        guard NSScreen.screens.count > 1, !dockApps.isEmpty,
+              let list = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return }
+
+        var current: [CGWindowID: CGRect] = [:]
+        for info in list {
+            guard (info[kCGWindowLayer as String] as? Int) == 0,
+                  let id = info[kCGWindowNumber as String] as? CGWindowID,
+                  let boundsDict = info[kCGWindowBounds as String] as? [String: Any],
+                  let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary) else { continue }
+            current[id] = bounds
+        }
+
+        let displays = FullscreenDetectionManager.activeDisplays().map(\.bounds)
+        var apps = dockApps
+        var movedProcesses: [NSRunningApplication] = []
+        for index in apps.indices {
+            let update = Self.windowsWithCurrentPositions(apps[index].windows, currentBounds: current, displays: displays)
+            apps[index].windows = update.windows
+            if update.displayChanged { movedProcesses += apps[index].processes }
+        }
+        guard !movedProcesses.isEmpty else { return }
+        dockApps = apps
+        AppLogger.shared.info("A window moved to another display; taskbars updated")
+        // The next normal dock update must not bring back the old, cached position and send the icon back.
+        Task { for process in movedProcesses { await windowService.invalidateCache(for: process) } }
+    }
+
+    private func setupWindowMoveMonitoring() {
+        // Mouse events need no permission to observe. Dragged fires continuously during a window drag; the
+        // release is checked twice because the window can settle or snap just after it.
+        windowDragMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak self] event in
+            let released = event.type == .leftMouseUp
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if released {
+                    self.refreshWindowPositions()
+                    try? await Task.sleep(nanoseconds: 400_000_000)
+                    self.refreshWindowPositions()
+                } else if Date().timeIntervalSince(self.lastPositionCheck) > 0.12 {
+                    self.lastPositionCheck = Date()
+                    self.refreshWindowPositions()
+                }
+            }
+        }
+        // Catch-all for moves without the mouse (a keyboard shortcut to another display): the resize sweep that
+        // already runs every few seconds posts this.
+        workspaceNotificationObservers.append(NotificationCenter.default.addObserver(
+            forName: Self.windowPositionsMayHaveChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.refreshWindowPositions() }
+        })
+    }
+
     init() {
         loadPinnedApps()
         loadDockAppOrder()
         setupWorkspaceNotifications()
+        setupWindowMoveMonitoring()
         // Initial update through coordinator
         coordinator.scheduleUpdate(reason: "initial_load")
         startBadgeRefreshTimer()
@@ -373,6 +460,7 @@ class AppManager: ObservableObject {
             self?.stopMonitoring()
         }
         badgeRefreshTimer?.invalidate()
+        if let windowDragMonitor { NSEvent.removeMonitor(windowDragMonitor) }
         workspaceNotificationObservers.forEach { NotificationCenter.default.removeObserver($0) }
         cancellables.removeAll()
     }

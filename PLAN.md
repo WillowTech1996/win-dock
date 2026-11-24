@@ -48,7 +48,7 @@ Test setup: laptop plus one external display, both arrangements (external above/
 
 ## Phase 3: Daily-driver polish (ongoing)
 
-Done so far (2026-11-24): taskbar reveals at its screen edge over a fullscreen app (4pt zone, 0.3s dwell); the system Dock is moved to an edge WinDock does not use while hidden, because fullscreen apps reveal it regardless of `autohide-delay`.
+Done so far (2026-11-24): a window dragged to another display moves its taskbar icon as its center crosses over (global mouse-drag listener + cheap position check, no re-enumeration); taskbar reveals at its screen edge over a fullscreen app (4pt zone, 0.3s dwell); the system Dock is moved to an edge WinDock does not use while hidden, because fullscreen apps reveal it regardless of `autohide-delay`.
 
 From upstream `ROADMAP.md` and `IDEAS.md`, in the order I'd want them:
 
