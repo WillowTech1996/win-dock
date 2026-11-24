@@ -59,8 +59,14 @@ From upstream `ROADMAP.md` and `IDEAS.md`, in the order I'd want them:
 5. Lazy preview capture (hover dwell), then ScreenCaptureKit migration for previews (`CGWindowListCreateImage` is deprecated).
 6. Snap layouts using `WindowsResizeManager` as the seed (would replace Rectangle).
 7. Left-aligned classic mode with Start button in the corner.
+8. Design update: a Windows-style tray overflow on the right of the taskbar. A small up-arrow (chevron) next to the system tray opens a flyout holding **other apps' menu bar icons**, like the "hidden icons" flyout on Windows 11. Added 2026-11-24 at the user's request; the user confirmed it means the third-party icons, not just WinDock's own menu, so this supersedes the "third-party tray icon hosting" out-of-scope line below. **Status: needs a feasibility spike before any design work.**
+   - Findings so far (2026-11-24, macOS 26.6.2, checked with `CGWindowList`): every menu bar item, third-party included, is a layer-25 window owned by *Control Centre*; 15 per display here, duplicated on the second display. The owner is the same for all of them and window names are empty without Screen Recording, so the window list cannot say which app an icon belongs to.
+   - macOS has no API to move a real status item into another window, so the flyout can only be a *mirror*: an image of each item plus forwarded clicks. This is how Bartender and Ice work and is fragile across macOS releases.
+   - Not yet checked, in spike order: (1) identify items through Accessibility (`AXExtrasMenuBar` on Control Centre: titles, descriptions, positions); Accessibility is already granted, so no new permission. (2) Render each item's image with the private capture the previews use, and see whether that needs Screen Recording (it conflicts with the small-permission goal). (3) Open an item's menu with `AXPress`, and see whether items the notch or overflow hides can still be pressed.
+   - Cheaper alternative if the spike fails: a flyout listing apps by icon and name (from `AXExtrasMenuBar` titles) that opens their menus via `AXPress`, with no mirrored images, combined with turning the real icons off in System Settings > Menu Bar.
+   - Go / no-go after the spike. If no-go, fall back to a flyout with WinDock's own options only.
 
-Explicitly out of scope for now: widgets board, theme marketplace, Start-menu file search, third-party tray icon hosting.
+Explicitly out of scope for now: widgets board, theme marketplace, Start-menu file search. (Third-party tray icon hosting moved to item 8, pending its feasibility spike.)
 
 ## Phase 4: Robustness
 
