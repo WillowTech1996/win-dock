@@ -33,8 +33,10 @@ class DockWindow: NSPanel {
     private(set) var targetDisplayID: CGDirectDisplayID?
 
     private var targetScreen: NSScreen? {
-        let matchingScreen = NSScreen.screens.first { $0.displayID == targetDisplayID }
-        return matchingScreen ?? screen ?? NSScreen.main
+        // A window made for a specific display must never wander onto another one. If its display is gone
+        // it has no screen, and the sync closes it.
+        guard let targetDisplayID else { return screen ?? NSScreen.main }
+        return NSScreen.screens.first { $0.displayID == targetDisplayID }
     }
     
     convenience init(screen: NSScreen? = nil) {
@@ -60,11 +62,6 @@ class DockWindow: NSPanel {
         
         // Completely disable resizing - make window non-resizable
         styleMask.remove(.resizable)
-        
-        // Set fixed size constraints
-        let dockHeight = getDockHeight()
-        minSize = NSSize(width: 100, height: dockHeight)
-        maxSize = NSSize(width: NSScreen.main?.frame.width ?? 1920, height: dockHeight)
         
         // Enhanced accessibility and app switcher support
         self.setAccessibilityTitle("WinDock Taskbar")

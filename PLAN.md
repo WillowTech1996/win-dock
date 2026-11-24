@@ -37,7 +37,7 @@ I want a Windows-style taskbar on every screen of my Mac. The Dock can only live
 
 Test setup: laptop plus one external display, both arrangements (external above/left/right), plus unplug/replug while running.
 
-- [ ] Audit every `NSScreen.main` / `screens.first` / `prefix(1)` use and make them per-screen.
+- [x] Audit every `NSScreen.main` / `screens.first` / `prefix(1)` use and make them per-screen. Done 2026-11-24: `DockWindow.targetScreen` never falls back to another display, the stray `NSScreen.main` size constraint is gone, notification positioning uses the menu-bar display. Remaining `screens.first` (coordinate flip) and `prefix(1)` (taskbar on first display only) are intentional. Notification banners on a non-primary display are still not handled (feature is off by default, untested).
 - [x] Rename `showOnAllSpaces` to `showOnAllDisplays` with a migration for the stored key; verify default behavior. Done 2026-11-24: migrated at launch (new key wins, old removed), old settings backups still import; unit-tested.
 - [x] Per-screen window lists: option to show only windows that are on this display's taskbar (Windows' "show taskbar buttons on: taskbar where window is open"), default on. Implemented 2026-11-24 (`DockApp.scoped(to:among:)`, setting `taskbarPerDisplayWindows`, default on); unit-tested and confirmed working on two displays. Not yet in settings export/import.
 - [ ] Verify `WindowsResizeManager` coordinate conversion for displays with negative origins and different scales.

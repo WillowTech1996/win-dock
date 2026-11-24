@@ -252,7 +252,9 @@ class NotificationPositionManager: NSObject, ObservableObject {
     
     private func cacheInitialNotificationData(windowSize: CGSize, notifSize: CGSize, position: CGPoint) {
         guard cachedInitialPosition == nil else { return }
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+        // Banner coordinates here are global and the offsets assume the origin display, which is the one with
+        // the menu bar (screens.first), not the screen that happens to hold the focused window (main).
+        guard let screen = NSScreen.screens.first else {
             debugLog("No screen available to cache notification data")
             return
         }
@@ -297,7 +299,7 @@ class NotificationPositionManager: NSObject, ObservableObject {
             newX = 0
         }
 
-        let screen = NSScreen.main ?? NSScreen.screens.first
+        let screen = NSScreen.screens.first
         let dockSize: CGFloat = (screen?.frame.height ?? 0) - (screen?.visibleFrame.height ?? 0)
         switch currentPosition {
         case .topLeft, .topMiddle, .topRight:

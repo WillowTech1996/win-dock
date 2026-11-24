@@ -72,7 +72,7 @@ Key files in `WinDock/`:
 
 ### Multi-monitor
 
-Each screen gets its own `DockWindow` and the `showOnAllDisplays` setting (default `true`; renamed from `showOnAllSpaces`, migrated at launch by `AppDelegate.migrateLegacySettings`) decides whether all `NSScreen.screens` or only the first get one. `NotificationPositionManager` and parts of `DockWindow` still use `NSScreen.main`; treat those as multi-monitor bugs when found. AppKit uses bottom-left origin, CoreGraphics/AX use top-left; `WindowsResizeManager` converts between them, so be careful with frames on non-primary displays.
+Each screen gets its own `DockWindow` and the `showOnAllDisplays` setting (default `true`; renamed from `showOnAllSpaces`, migrated at launch by `AppDelegate.migrateLegacySettings`) decides whether all `NSScreen.screens` or only the first get one. Do not use `NSScreen.main` (the screen with the focused window) to mean "this taskbar's display"; use the window's `targetDisplayID`. The remaining `screens.first` uses are deliberate: the menu-bar display defines the CG/AppKit coordinate flip (`WindowsResizeManager`) and where notification banners are positioned (`NotificationPositionManager`, which still assumes banners are on that display). AppKit uses bottom-left origin, CoreGraphics/AX use top-left; `WindowsResizeManager` converts between them, so be careful with frames on non-primary displays.
 
 ### Private APIs (can break on any macOS update)
 
