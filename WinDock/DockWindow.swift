@@ -74,6 +74,7 @@ class DockWindow: NSPanel {
         // Start hidden if our display is already fullscreen; the flag must match so a later update isn't skipped.
         isHiddenForFullscreen = fullscreenManager.isFullscreen(on: targetDisplayID)
         alphaValue = visibilityManager.isVisible && !isHiddenForFullscreen ? 1.0 : 0.0
+        if isHiddenForFullscreen { beginFullscreenPeek() }
         
         updatePosition()
         appManager.startMonitoring()
@@ -116,6 +117,81 @@ class DockWindow: NSPanel {
     
     /// True while a fullscreen window on this window's own display has hidden the taskbar.
     private(set) var isHiddenForFullscreen = false
+    /// True while the taskbar is shown over a fullscreen app because the pointer pushed against its screen edge.
+    private(set) var isRevealedInFullscreen = false
+    private var edgeMonitor: Any?
+    private var revealWorkItem: DispatchWorkItem?
+    private var hideWorkItem: DispatchWorkItem?
+
+    /// A thin strip along the taskbar's screen edge that reveals it during fullscreen. AppKit coordinates.
+    static func edgeTrigger(for position: DockPosition, screenFrame: NSRect, barFrame: NSRect) -> NSRect {
+        let thickness: CGFloat = 4
+        switch position {
+        case .bottom: return NSRect(x: barFrame.minX, y: screenFrame.minY, width: barFrame.width, height: thickness)
+        case .top: return NSRect(x: barFrame.minX, y: screenFrame.maxY - thickness, width: barFrame.width, height: thickness)
+        case .left: return NSRect(x: screenFrame.minX, y: barFrame.minY, width: thickness, height: barFrame.height)
+        case .right: return NSRect(x: screenFrame.maxX - thickness, y: barFrame.minY, width: thickness, height: barFrame.height)
+        }
+    }
+
+    /// While a fullscreen app owns this display the taskbar is invisible, so it must not swallow clicks, and the
+    /// pointer is watched (only now) for a push against the taskbar's edge. Both the system Dock and the Windows
+    /// taskbar do this, and without it there is no mouse route out of a fullscreen app.
+    private func beginFullscreenPeek() {
+        ignoresMouseEvents = true
+        guard edgeMonitor == nil else { return }
+        edgeMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved]) { [weak self] _ in
+            self?.pointerMovedDuringFullscreen()
+        }
+    }
+
+    private func endFullscreenPeek() {
+        if let edgeMonitor { NSEvent.removeMonitor(edgeMonitor) }
+        edgeMonitor = nil
+        revealWorkItem?.cancel(); revealWorkItem = nil
+        hideWorkItem?.cancel(); hideWorkItem = nil
+        isRevealedInFullscreen = false
+        ignoresMouseEvents = false
+    }
+
+    private func pointerMovedDuringFullscreen() {
+        guard isHiddenForFullscreen, let screen = targetScreen, let position = AppDelegate.shared?.dockPosition else { return }
+        let pointer = NSEvent.mouseLocation
+
+        if isRevealedInFullscreen {
+            if frame.insetBy(dx: -4, dy: -4).contains(pointer) {
+                hideWorkItem?.cancel(); hideWorkItem = nil
+            } else if hideWorkItem == nil {
+                let item = DispatchWorkItem { [weak self] in self?.setRevealedInFullscreen(false) }
+                hideWorkItem = item
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: item)
+            }
+            return
+        }
+
+        if Self.edgeTrigger(for: position, screenFrame: screen.frame, barFrame: frame).contains(pointer) {
+            if revealWorkItem == nil {
+                let item = DispatchWorkItem { [weak self] in self?.setRevealedInFullscreen(true) }
+                revealWorkItem = item
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: item)  // dwell, so grazing the edge does nothing
+            }
+        } else {
+            revealWorkItem?.cancel(); revealWorkItem = nil
+        }
+    }
+
+    private func setRevealedInFullscreen(_ revealed: Bool) {
+        revealWorkItem = nil; hideWorkItem = nil
+        guard isHiddenForFullscreen, isRevealedInFullscreen != revealed else { return }
+        isRevealedInFullscreen = revealed
+        ignoresMouseEvents = !revealed
+        if revealed { orderFrontRegardless() }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            animator().alphaValue = revealed ? 1.0 : 0.0
+        }
+        AppLogger.shared.info("Taskbar \(revealed ? "revealed" : "hidden again") over fullscreen on display \(targetDisplayID.map(String.init) ?? "unknown")")
+    }
 
     private func handleFullscreenStateChange(_ fullscreenDisplayIDs: Set<CGDirectDisplayID>) {
         let shouldHide = targetDisplayID.map { fullscreenDisplayIDs.contains($0) } ?? false
@@ -130,8 +206,12 @@ class DockWindow: NSPanel {
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 animator().alphaValue = 0.0
             }
+            beginFullscreenPeek()
             AppLogger.shared.info("Taskbar hidden for fullscreen window on display \(targetDisplayID.map(String.init) ?? "unknown")")
-        } else if visibilityManager.isVisible && !visibilityManager.isManuallyHidden {
+        } else {
+            endFullscreenPeek()
+        }
+        if !shouldHide, visibilityManager.isVisible && !visibilityManager.isManuallyHidden {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.3
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -192,7 +272,7 @@ class DockWindow: NSPanel {
     
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
-        if autoHide {
+        if autoHide && !isHiddenForFullscreen {
             hideTimer?.invalidate()
             hideTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
                 NSAnimationContext.runAnimationGroup { context in
