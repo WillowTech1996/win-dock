@@ -1,241 +1,104 @@
 # CLAUDE.md
 
-## Tool Restrictions
+Guidance for Claude Code when working in this repository. See `PLAN.md` for the fork roadmap and current priorities.
 
-- **Never use `my-custom-jira` MCP tools** (e.g., `mcp__my-custom-jira__*`).
-- **Never use the `/jira-ticket` skill**.
+## What this is
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+A personal fork of [barnuri/win-dock](https://github.com/barnuri/win-dock) (MIT). WinDock is a macOS SwiftUI/AppKit app that draws a Windows 11-style taskbar: centered app icons, running indicators, window previews on hover, Start button, search button, system tray, per-screen taskbar windows.
 
-## Project Overview
+It runs as an accessory app (no Dock icon of its own, status-bar menu only) and works by reading other apps' windows through the Accessibility (AX) API.
 
-WinDock is a macOS SwiftUI application that provides a Windows 11-style taskbar for macOS. It runs as an accessory app with a system tray menu and provides app management, window previews, and desktop customization.
+Fork goals: a taskbar I can trust and run daily on a multi-monitor Mac, built and signed by me, with a smaller permission footprint than upstream. See `PLAN.md`.
 
-## Build and Run Commands
+## Commands
 
-### Quick Development
 ```bash
-./run.sh              # Build, run, and tail logs with hot reload support
-./build.sh            # Build release version only
-./open.sh             # Open built app from build directory
-```
-
-### Xcode Development
-```bash
-open WinDock.xcodeproj  # Open in Xcode
-# Press ⌘R to build and run
-# Press ⌘U to run tests
-```
-
-### Testing
-```bash
-# Run unit tests
+open WinDock.xcodeproj            # Xcode; ⌘R run, ⌘U test
+./build.sh                        # Release build into ./build (needs `gem install xcpretty`)
+./open.sh                         # Open the built app
+./run.sh                          # Build + run + tail logs; 'R'+Enter rebuilds, 'Q'+Enter quits
 xcodebuild test -scheme WinDock -destination 'platform=macOS'
-
-# Run specific test
-xcodebuild test -scheme WinDock -destination 'platform=macOS' -only-testing:WinDockTests/AppManagerTests/testSpecificTest
+xcodebuild test -scheme WinDock -destination 'platform=macOS' -only-testing:WinDockTests/AppManagerTests
+tail -f ~/Library/Logs/WinDock/app.log
 ```
 
-### Logs
-```bash
-tail -f ./logs/app.log                           # Follow application logs
-open /Users/$USER/Library/Logs/WinDock           # Open logs directory in Finder
-```
+`run.sh` symlinks `./logs/app.log`, so `mkdir -p logs` first if it fails. `logs/` and `build/` should stay gitignored.
 
-### Release
-```bash
-./release.py          # Automated release process (version bump, build, package)
-```
+## Requirements
+
+- macOS 15.0+ deployment target (`MACOSX_DEPLOYMENT_TARGET = 15.0` in the project; the upstream README's "macOS 14" is wrong). Swift 5 language mode.
+- Xcode (installed locally; check `xcodebuild -version`).
+- Only one package dependency: **SettingsAccess** (SwiftPM).
+
+## Signing matters for day-to-day work
+
+macOS tracks Accessibility approval by code signature. If the signature changes between builds, the permission silently stops working and window detection returns nothing.
+
+- Use a stable signing identity for every local build (Xcode → WinDock target → Signing & Capabilities → Automatically manage signing, your own Team).
+- The project currently has upstream's `DEVELOPMENT_TEAM` and bundle ID `barnuri.WinDock`. Changing those to mine is the first task in `PLAN.md`. Do not ship or install a build under the upstream bundle ID.
+- If the taskbar shows no windows after a rebuild, re-check Accessibility first (remove the entry, re-add, relaunch).
 
 ## Architecture
 
-### Performance-Critical Design
-
-The app uses a modern, performance-optimized architecture to prevent UI blocking:
-
-1. **Background Task Coordination** (`BackgroundTaskCoordinator.swift`)
-   - Centralizes all dock update scheduling with intelligent debouncing
-   - Prevents "update storms" by batching notifications (max 3 before forcing update)
-   - Adaptive delays based on update frequency (0.5s min interval between updates)
-   - All updates flow through `scheduleUpdate(reason:)` method
-
-2. **Async Window Enumeration** (`WindowEnumerationService.swift`)
-   - Thread-safe `actor` that performs expensive AX API calls off the main thread
-   - 1-second caching layer to avoid redundant window queries
-   - Structured concurrency with `withTaskGroup` for parallel window processing
-   - All window enumeration happens in background via `Task.detached`
-
-3. **Event-Driven Updates** (`AppManager.swift`)
-   - Uses NSWorkspace notifications instead of polling (no timers!)
-   - Notifications trigger `coordinator.scheduleUpdate()` which debounces automatically
-   - Concurrent app processing using `withTaskGroup` in `computeDockApps()`
-   - Heavy computation happens in `Task.detached` to avoid blocking `@MainActor`
-
-**Key Pattern**: Never block the main thread. All expensive operations (AX API, window enumeration, app processing) use `Task.detached` or `actor` isolation.
-
-### Core Component Interactions
+Event-driven, never polling. The one rule: **never block the main thread** and never call AX APIs on it.
 
 ```
-NSWorkspace Notifications → BackgroundTaskCoordinator (debounce) → AppManager.updateDockApps()
-                                                                         ↓
-                                                                   Task.detached
-                                                                         ↓
-                                                            WindowEnumerationService (actor)
-                                                                         ↓
-                                                                  AX API Calls
-                                                                         ↓
-                                                                  Back to MainActor
-                                                                         ↓
-                                                              DockView (SwiftUI)
+NSWorkspace notifications
+  → BackgroundTaskCoordinator   (debounce / priority lanes)
+  → AppManager.updateDockApps() (@MainActor, state owner)
+  → Task.detached → WindowEnumerationService (actor, AX calls, short TTL cache)
+  → back on MainActor → DockView (SwiftUI) → AppDockItem
 ```
 
-### Main Components
+Key files in `WinDock/`:
 
-- **Main.swift**: App entry point with `AppDelegate` for lifecycle management
-  - Sets up status bar menu and dock windows for all screens
-  - Handles dock positioning and multi-monitor support
-  - Manages permission requests (AppleScript automation)
+| File | Role |
+|---|---|
+| `Main.swift` | `AppDelegate`: status-bar menu, permission prompts, builds one `DockWindow` per screen in `setupDockWindowsForAllScreens()`; rebuilds on `didChangeScreenParametersNotification` |
+| `AppManager.swift` | Central `@MainActor` state: `dockApps`, pin/unpin, reorder, activate/hide/quit. Also declares the private-API bindings. ~1,100 lines; split is on the roadmap |
+| `BackgroundTaskCoordinator.swift` | All dock refreshes go through `scheduleUpdate(reason:)` |
+| `WindowEnumerationService.swift` | Actor doing AX window enumeration and filtering (`isValidStandardWindow`, `isSpecialApp`) |
+| `DockWindow.swift` / `DockUtilities.swift` | Borderless `NSWindow` per screen, positioning (`dockFrame(for:screen:)`), auto-hide, fullscreen handling |
+| `DockView.swift`, `AppDockItem.swift` | SwiftUI taskbar and per-app items (indicators, badges, hover, drag-reorder) |
+| `WindowPreviewView.swift`, `WindowsPreviewItem.swift` | Hover previews with window screenshots |
+| `WindowsResizeManager.swift` | Keeps other windows out of the taskbar area (maximize respects the bar) |
+| `FullscreenDetectionManager.swift` | Hides the bar when a fullscreen app is active |
+| `SettingsView.swift`, `SettingsManager.swift`, `SettingsHelper.swift` | Settings UI (~1,500 lines) and `UserDefaults`/`@AppStorage` persistence |
+| `StartMenuView.swift`, `SearchButton.swift`, `SystemTrayView.swift`, `UserProfileManager.swift` | Start menu, search launcher (Spotlight/Alfred/Raycast), tray (clock, battery, network) |
+| `NotificationPositionManager.swift` | Repositions system notification banners via AX |
+| `PrivateAPIHealthCheck.swift` | `dlsym` probe of the private symbols at launch; degrades with a log line |
 
-- **AppManager.swift**: Central app state coordinator (`@MainActor`)
-  - Manages `dockApps` array (published for SwiftUI binding)
-  - Handles app activation, hiding, quitting, window management
-  - Pin/unpin apps, drag-and-drop reordering with persistence
-  - Uses `BackgroundTaskCoordinator` for all update scheduling
-  - Uses `WindowEnumerationService` for non-blocking window queries
+### Multi-monitor
 
-- **DockView.swift**: Main UI component
-  - Renders taskbar with Windows 11 styling (glass materials, gradients)
-  - Start menu, task view, search button, system tray
-  - Drag-and-drop reordering with `DockDropDelegate`
-  - Material caching to prevent race conditions
+Each screen gets its own `DockWindow` and the `showOnAllSpaces` setting (default `true`, despite the name it controls all-screens) decides whether all `NSScreen.screens` or only the first get one. `NotificationPositionManager` and parts of `DockWindow` still use `NSScreen.main`; treat those as multi-monitor bugs when found. AppKit uses bottom-left origin, CoreGraphics/AX use top-left; `WindowsResizeManager` converts between them, so be careful with frames on non-primary displays.
 
-- **DockWindow.swift**: Custom `NSWindow` for the taskbar
-  - Positioned per screen with auto-hide support
-  - Uses `NSWindow.Level` and collection behaviors for "always on top" behavior
-  - Multi-monitor aware with per-screen instances
+### Private APIs (can break on any macOS update)
 
-- **AppDockItem.swift**: Individual app icon in the taskbar
-  - Shows running indicators, window counts, notification badges
-  - Hover for window previews, click to activate, right-click context menu
-  - Drag source for reordering
+`CGSGetWindowLevel`, `CGSMainConnectionID`, `CGSHWCaptureWindowList`, `_AXUIElementGetWindow` (bound via `@_silgen_name`), plus a remote-token trick for windows on other Spaces. Keep the public fallback (`CGWindowListCopyWindowInfo`) working and keep `PrivateAPIHealthCheck` in sync when adding any symbol.
 
-- **WindowPreviewView.swift**: Windows 11-style window preview popover
-  - Real-time window screenshots using Core Graphics
-  - Click to focus, middle-click to close windows
+### Permissions and entitlements
 
-### App State Management
+Needs Accessibility (core) and Automation/Apple Events (activate/hide/quit apps). `WinDock.entitlements` upstream also requests Contacts (`addressbook`) and scripting targets for Finder, System Events, Teams, Slack, Mail, App Store. The sandbox is off. Treat every entitlement and scripting target as something to justify; do not add new ones without a note in `PLAN.md`.
 
-- **Persistence**: UserDefaults for pinned apps, dock order, and settings
-- **Reactive Updates**: Combine publishers trigger UI updates
-- **Thread Safety**: `@MainActor` isolation for UI-related classes, `actor` for background services
+## Conventions and pitfalls
 
-### System Integration
+- Route every dock refresh through `coordinator.scheduleUpdate(reason:)`. Don't call `updateDockApps()` directly and don't add timers.
+- Heavy work goes in `Task.detached` or the `WindowEnumerationService` actor; hop back to `@MainActor` only for UI state.
+- Compute SwiftUI materials synchronously (see `MaterialCache` in `DockView`); no async material work.
+- Log with `AppLogger.shared.info/debug/warning/error`, always with enough context to find the app/window involved.
+- Window filtering is derived from AltTab (`isValidStandardWindow`): min size 100x50, standard/dialog subroles, special-cased apps. Add app quirks to `isSpecialApp()`.
+- Automation error `-1743` means the Automation permission is missing for that target app.
+- Respect Reduce Motion / Reduce Transparency and keep VoiceOver labels on new controls.
+- Settings use `@AppStorage`; add new keys with defaults and, if they affect windows, observe changes the way `showOnAllSpaces` does.
 
-**Private APIs Used** (may break on macOS updates):
-- `CGSGetWindowLevel`: Get window z-order level
-- `_AXUIElementGetWindow`: Convert AX elements to window IDs
-- `_AXUIElementCreateWithRemoteToken`: Brute-force window detection for windows on other spaces
+## Testing
 
-**Permissions Required**:
-- Accessibility Access: For window detection and manipulation
-- AppleScript/Automation: For app control (activate, hide, quit)
+Unit tests live in `WinDockTests/` (app manager, coordinator, enumeration, fullscreen detection, icon cache, preview downsampling, private-API health, logger). Window-enumeration tests need Accessibility granted to the test host. UI tests exist but are only launch smoke tests. Add a unit test with any logic change in `AppManager`, the coordinator, or the enumeration filters.
 
-**Fallback Strategy**:
-- Use public `CGWindowListCopyWindowInfo` for basic window enumeration
-- Gracefully degrade features if private APIs fail
+## Release
 
-## Key Development Patterns
+`release.py` bumps the version, builds, zips, updates `homebrew-tap/Formula/windock.rb`, and creates a GitHub release. Do not run it as-is in this fork: it targets upstream's repo and tap, and its zip step breaks code signatures (see `PLAN.md`, Phase 1). Distribution for now is local builds only.
 
-### Adding a New Feature to AppManager
+## Docs
 
-When adding app-related functionality:
-
-1. Use `coordinator.scheduleUpdate(reason: "your_feature")` instead of calling `updateDockApps()` directly
-2. Perform heavy work in `Task.detached` or via `WindowEnumerationService`
-3. Return to `@MainActor` only for final UI updates
-4. Log operations with `AppLogger.shared.info/debug/error`
-
-Example:
-```swift
-func newFeature() {
-    // Schedule update through coordinator (auto-debounced)
-    coordinator.scheduleUpdate(reason: "new_feature_trigger")
-}
-
-private func computeDockApps() async -> [DockApp] {
-    // Already runs in Task.detached - safe to do heavy work here
-    return await Task.detached(priority: .userInitiated) {
-        // Heavy computation off main thread
-        // ...
-    }.value
-}
-```
-
-### Window Filtering Logic
-
-WinDock replicates AltTab's sophisticated window filtering from `alt-tab-macos` project:
-- Standard windows: Normal level, proper subroles (AXStandardWindow, AXDialog)
-- Special app cases: Books, Keynote, IINA, Adobe apps, Steam, JetBrains IDEs
-- Size constraints: Minimum 100x50 pixels
-- Level filtering: Normal and floating windows only (specific apps)
-
-When adding app-specific logic, add to `isSpecialApp()` or `isValidStandardWindow()` in `WindowEnumerationService.swift`.
-
-### Multi-Monitor Support
-
-Each screen gets its own `DockWindow` instance:
-- Created in `setupDockWindowsForAllScreens()`
-- Positioned based on `dockPosition` (@AppStorage property)
-- Recreated on screen configuration changes via `NSApplication.didChangeScreenParametersNotification`
-
-### Material Caching Pattern
-
-`DockView` uses immutable `MaterialCache` struct to prevent race conditions:
-```swift
-struct MaterialCache: Equatable {
-    let transparency: Double
-    let material: AnyShapeStyle
-}
-```
-Compute materials synchronously, cache atomically. No async material computation.
-
-## Common Pitfalls
-
-1. **Don't poll for updates**: Use NSWorkspace notifications, not timers
-2. **Don't block @MainActor**: Use `Task.detached` for expensive operations
-3. **Don't call AX APIs on main thread**: Use `WindowEnumerationService` actor
-4. **Don't bypass the coordinator**: Always use `coordinator.scheduleUpdate()` for dock updates
-5. **Don't create materials async**: Compute materials synchronously in view body
-
-## Testing Notes
-
-- `AppManagerTests.swift`: Tests core app management logic
-- Mock `NSRunningApplication` when testing app detection
-- Use XCTest expectations for async operations
-- Window enumeration tests require Accessibility permissions in test environment
-
-## Dependencies
-
-- **SettingsAccess** (2.1.0+): SwiftUI settings window integration via Swift Package Manager
-- Standard macOS frameworks: AppKit, SwiftUI, Combine, ApplicationServices
-
-## Deployment
-
-- Minimum target: macOS 15.0 (Sonoma)
-- Swift 5.0+, Xcode 16.4+
-- Distribution: Homebrew tap (`barnuri/brew/windock`)
-- Bundle ID: `barnuri.WinDock`
-
-## Debugging Tips
-
-1. **Enable debug logging**: Check `AppLogger.swift` for log levels
-2. **Monitor dock updates**: Log messages show debouncing behavior and reasons
-3. **Window enumeration issues**: Check Accessibility permissions first
-4. **Performance profiling**: Use Instruments to profile main thread blocking
-5. **AppleScript errors**: Error -1743 means automation permission needed
-
-## Related Documentation
-
-- See `DEVELOPER_GUIDE.md` for detailed development workflow
-- See `ROADMAP.md` for planned features
-- See `UI_PERFORMANCE_FIX_PLAN.md` and `UI_PERFORMANCE_QUICK_REFERENCE.md` for recent performance optimization details
+`README.md`, `ROADMAP.md` (upstream near-term list), `IDEAS.md` (large idea backlog, not commitments), `Developer.md` (signing setup). `AGENTS.md`, `.github/copilot-instructions.md`, `.specify/` and `.claude/commands/speckit.*` are upstream tooling for other agents/workflows and can be removed from the fork if unused.
