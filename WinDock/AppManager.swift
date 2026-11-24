@@ -8,6 +8,13 @@ import ApplicationServices
 @_silgen_name("CGSGetWindowLevel")
 func CGSGetWindowLevel(_ cid: CGSConnectionID, _ wid: CGWindowID, _ level: UnsafeMutablePointer<CGWindowLevel>) -> CGError
 
+// Mission Control Spaces: which Spaces a window is in, and which Space each display is showing.
+@_silgen_name("CGSCopySpacesForWindows")
+func CGSCopySpacesForWindows(_ cid: CGSConnectionID, _ mask: Int32, _ windows: CFArray) -> Unmanaged<CFArray>?
+
+@_silgen_name("CGSCopyManagedDisplaySpaces")
+func CGSCopyManagedDisplaySpaces(_ cid: CGSConnectionID) -> Unmanaged<CFArray>?
+
 @_silgen_name("_AXUIElementGetWindow")
 func _AXUIElementGetWindow(_ element: AXUIElement, _ windowID: UnsafeMutablePointer<CGWindowID>) -> AXError
 
@@ -159,24 +166,58 @@ private func getFrontWindowID(pid: pid_t) -> CGWindowID? {
     return nil
 }
 
-/// Close a window using AX API close button
+/// The process that owns a window, from the full window list. `CGWindowListCopyWindowInfo([.optionIncludingWindow], id)`
+/// on its own returns nothing for a window that is off screen (another Space, minimized), so it cannot be used for this.
+func windowOwnerPID(_ windowID: CGWindowID) -> pid_t? {
+    guard let list = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
+    for info in list where (info[kCGWindowNumber as String] as? CGWindowID) == windowID {
+        return info[kCGWindowOwnerPID as String] as? pid_t
+    }
+    return nil
+}
+
+/// Close a window using AX API close button. Reaches windows on other Spaces too.
 private func closeWindowViaAX(windowID: CGWindowID, pid: pid_t) -> Bool {
-    let axApp = AXUIElementCreateApplication(pid)
-    var windowElements: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowElements) == .success,
-          let windows = windowElements as? [AXUIElement] else { return false }
-    for window in windows {
-        var wid: CGWindowID = 0
-        if _AXUIElementGetWindow(window, &wid) == .success, wid == windowID {
-            var closeButton: CFTypeRef?
-            if AXUIElementCopyAttributeValue(window, kAXCloseButtonAttribute as CFString, &closeButton) == .success,
-               let button = closeButton, CFGetTypeID(button) == AXUIElementGetTypeID() {
-                let axButton = button as! AXUIElement
-                return AXUIElementPerformAction(axButton, kAXPressAction as CFString) == .success
-            }
+    guard let window = axWindowElement(windowID: windowID, pid: pid) else {
+        AppLogger.shared.warning("Close window \(windowID): no AX element for pid \(pid), even through the remote-token scan")
+        return false
+    }
+    func isMinimized(_ element: AXUIElement) -> Bool {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXMinimizedAttribute as CFString, &value) == .success else { return false }
+        return (value as? Bool) ?? false
+    }
+
+    func pressClose(_ element: AXUIElement) -> Bool {
+        var closeButton: CFTypeRef?
+        let buttonResult = AXUIElementCopyAttributeValue(element, kAXCloseButtonAttribute as CFString, &closeButton)
+        guard buttonResult == .success, let button = closeButton, CFGetTypeID(button) == AXUIElementGetTypeID() else {
+            AppLogger.shared.warning("Close window \(windowID): no AX close button (AX error \(buttonResult.rawValue))")
+            return false
+        }
+        let pressResult = AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString)
+        if pressResult != .success {
+            AppLogger.shared.warning("Close window \(windowID): pressing the close button failed (AX error \(pressResult.rawValue))")
+        }
+        return pressResult == .success
+    }
+
+    let wasMinimized = isMinimized(window)
+    guard pressClose(window) else { return false }
+    guard wasMinimized else { return true }
+
+    // Apps that hide windows instead of destroying them (Claude, Calendar) ignore a close on a minimized window
+    // and keep it in the Dock, so its tile would never go away. Restore it and close it again; once it is
+    // hidden and not minimized it is no longer listed.
+    usleep(300_000)
+    if let remaining = axWindowElement(windowID: windowID, pid: pid), isMinimized(remaining) {
+        AppLogger.shared.info("Close window \(windowID): still minimized after its close button was pressed, restoring it and closing again")
+        unminimizeWindowByID(windowID, pid: pid)
+        if let restored = axWindowElement(windowID: windowID, pid: pid) {
+            return pressClose(restored)
         }
     }
-    return false
+    return true
 }
 
 // Window attributes structure to hold AX API results
@@ -244,9 +285,7 @@ struct DockApp: Identifiable, Hashable {
 
     /// The process that owns `windowID`, falling back to the primary process.
     func process(owningWindow windowID: CGWindowID) -> NSRunningApplication? {
-        guard !additionalProcesses.isEmpty,
-              let info = (CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID) as? [[String: Any]])?.first,
-              let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t else {
+        guard !additionalProcesses.isEmpty, let ownerPID = windowOwnerPID(windowID) else {
             return runningApplication
         }
         return processes.first { $0.processIdentifier == ownerPID } ?? runningApplication
@@ -883,7 +922,15 @@ class AppManager: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async {
             switch self.attemptCloseViaAX(windowID: windowID, pid: pid, appName: appName) {
             case .closed:
-                DispatchQueue.main.async { completion?(true) }
+                // Closing a window posts nothing the dock listens to (the app keeps running), so its window
+                // counts and indicators would stay stale. Drop the cached window list and refresh now.
+                DispatchQueue.main.async {
+                    Task { @MainActor in
+                        await self.windowService.invalidateCache(for: runningApp)
+                        self.coordinator.scheduleUpdate(reason: "window_closed")
+                        completion?(true)
+                    }
+                }
                 return
             case .windowNotFound:
                 DispatchQueue.main.async { completion?(false) }
@@ -909,11 +956,8 @@ class AppManager: ObservableObject {
         guard windowID > 0 else { return .pressFailed }
 
         // Verify the window belongs to this app
-        guard let windowList = CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID) as? [[String: Any]],
-              let windowInfo = windowList.first,
-              let ownerPID = windowInfo[kCGWindowOwnerPID as String] as? Int32,
-              ownerPID == pid else {
-            AppLogger.shared.warning("Window \(windowID) does not belong to app \(appName)")
+        guard windowOwnerPID(windowID) == pid else {
+            AppLogger.shared.warning("Window \(windowID) does not belong to app \(appName) (pid \(pid))")
             return .windowNotFound
         }
 

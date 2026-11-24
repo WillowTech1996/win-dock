@@ -92,6 +92,28 @@ actor WindowEnumerationService {
         }.value
     }
     
+    /// A window that still exists but is neither shown, minimized, nor on another Space. Apps such as Claude,
+    /// Calendar and Raycast keep "closed" windows around hidden, so listing them gives tiles that cannot be
+    /// closed and previews that are blank. A window in no Space at all counts too. Windows on a Space that is
+    /// not currently showing are real (they are what lets a fullscreen user reach other apps), and so are the
+    /// windows of an app hidden with ⌘H.
+    nonisolated static func isHiddenLeftover(isOnScreen: Bool, isMinimized: Bool, isAppHidden: Bool,
+                                             windowSpaces: [Int], activeSpaces: Set<Int>) -> Bool {
+        guard !isOnScreen, !isMinimized, !isAppHidden else { return false }
+        return windowSpaces.allSatisfy { activeSpaces.contains($0) }
+    }
+
+    /// The Space each display is currently showing, or nil if the private call fails (then nothing is filtered).
+    nonisolated static func currentSpaceIDs() -> Set<Int>? {
+        guard let displays = CGSCopyManagedDisplaySpaces(CGSMainConnectionID())?.takeRetainedValue() as? [[String: Any]] else { return nil }
+        let ids = displays.compactMap { ($0["Current Space"] as? [String: Any])?["id64"] as? Int }
+        return ids.isEmpty ? nil : Set(ids)
+    }
+
+    nonisolated static func spaceIDs(of windowID: CGWindowID) -> [Int]? {
+        (CGSCopySpacesForWindows(CGSMainConnectionID(), 0x7, [windowID] as CFArray)?.takeRetainedValue() as? [Int])
+    }
+
     /// Synchronous window enumeration - runs on background thread.
     /// This is where all the expensive AX API calls happen.
     /// `nonisolated` so the detached task does NOT hop back onto the actor — the per-window
@@ -114,7 +136,8 @@ actor WindowEnumerationService {
             axWindows: axWindows,
             cgWindowList: cgWindowList,
             pid: pid,
-            app: app
+            app: app,
+            activeSpaces: Self.currentSpaceIDs()
         )
     }
     
@@ -126,7 +149,8 @@ actor WindowEnumerationService {
         axWindows: [AXUIElement],
         cgWindowList: [[String: Any]],
         pid: pid_t,
-        app: NSRunningApplication
+        app: NSRunningApplication,
+        activeSpaces: Set<Int>?
     ) async -> [WindowInfo] {
         return await withTaskGroup(of: (Int, WindowInfo?).self) { group in
             for (index, axWindow) in axWindows.enumerated() {
@@ -135,7 +159,8 @@ actor WindowEnumerationService {
                         axWindow: axWindow,
                         cgWindowList: cgWindowList,
                         pid: pid,
-                        app: app
+                        app: app,
+                        activeSpaces: activeSpaces
                     )
                     return (index, window)
                 }
@@ -156,7 +181,8 @@ actor WindowEnumerationService {
         axWindow: AXUIElement,
         cgWindowList: [[String: Any]],
         pid: pid_t,
-        app: NSRunningApplication
+        app: NSRunningApplication,
+        activeSpaces: Set<Int>?
     ) async -> WindowInfo? {
         // Get window ID through AX API
         guard let windowID = getWindowID(from: axWindow) else { return nil }
@@ -187,6 +213,12 @@ actor WindowEnumerationService {
         }
         
         let isOnScreen = cgWindowInfo?[kCGWindowIsOnscreen as String] as? Bool ?? false
+
+        if let activeSpaces, let windowSpaces = Self.spaceIDs(of: windowID),
+           Self.isHiddenLeftover(isOnScreen: isOnScreen, isMinimized: windowAttributes.isMinimized,
+                                 isAppHidden: app.isHidden, windowSpaces: windowSpaces, activeSpaces: activeSpaces) {
+            return nil
+        }
         let level = getWindowLevel(windowID: windowID)
         
         // Apply filtering logic using AX attributes

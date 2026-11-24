@@ -69,6 +69,13 @@ struct AppDockItem: View {
         .accessibilityHint(app.isRunning ? "Activates the app. Use the shortcut menu for more actions." : "Launches the app.")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { handleTap() }
+        .onChange(of: app.windowCount) { _, _ in
+            // The popover's width follows the window count and is fixed while it is open (resizing an open
+            // NSPopover crashed upstream), so when the count changes replace it with a correctly sized one.
+            guard showWindowPreview else { return }
+            showWindowPreview = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { showWindowPreview = true }
+        }
         .onChange(of: showWindowPreview) { _, isShown in
             // When the popover closes for any reason (including a programmatic dismiss
             // such as clicking a window thumbnail), the inner tracking view may never

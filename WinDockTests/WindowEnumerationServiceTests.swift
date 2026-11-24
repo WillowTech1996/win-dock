@@ -21,4 +21,42 @@ final class WindowEnumerationServiceTests: XCTestCase {
         XCTAssertFalse(stale.isValid(ttl: 1.0))
         XCTAssertTrue(stale.isValid(ttl: 5.0))
     }
+
+    // MARK: - Hidden leftover windows
+
+    func testHiddenWindowInAnActiveSpaceIsALeftover() {
+        // Claude hides a closed window instead of destroying it: off screen, not minimized, still in Space 1.
+        XCTAssertTrue(WindowEnumerationService.isHiddenLeftover(
+            isOnScreen: false, isMinimized: false, isAppHidden: false, windowSpaces: [1], activeSpaces: [1, 957]))
+    }
+
+    func testWindowInNoSpaceIsALeftover() {
+        XCTAssertTrue(WindowEnumerationService.isHiddenLeftover(
+            isOnScreen: false, isMinimized: false, isAppHidden: false, windowSpaces: [], activeSpaces: [1, 957]))
+    }
+
+    func testVisibleWindowIsNeverALeftover() {
+        XCTAssertFalse(WindowEnumerationService.isHiddenLeftover(
+            isOnScreen: true, isMinimized: false, isAppHidden: false, windowSpaces: [1], activeSpaces: [1]))
+    }
+
+    func testMinimizedWindowIsNeverALeftover() {
+        XCTAssertFalse(WindowEnumerationService.isHiddenLeftover(
+            isOnScreen: false, isMinimized: true, isAppHidden: false, windowSpaces: [1], activeSpaces: [1]))
+    }
+
+    func testWindowOnAnotherSpaceIsKept() {
+        // From a fullscreen Space (current 999) the desktop Space's windows are off screen but real.
+        XCTAssertFalse(WindowEnumerationService.isHiddenLeftover(
+            isOnScreen: false, isMinimized: false, isAppHidden: false, windowSpaces: [1], activeSpaces: [999, 957]))
+    }
+
+    func testWindowsOfAnAppHiddenWithCommandHAreKept() {
+        XCTAssertFalse(WindowEnumerationService.isHiddenLeftover(
+            isOnScreen: false, isMinimized: false, isAppHidden: true, windowSpaces: [1], activeSpaces: [1]))
+    }
+
+    func testCurrentSpacesAreReadableOnThisMac() {
+        XCTAssertNotNil(WindowEnumerationService.currentSpaceIDs())
+    }
 }

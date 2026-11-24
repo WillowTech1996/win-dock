@@ -130,6 +130,15 @@ struct WindowsPreviewItem: View {
     }
     
     private func closeWindow() {
+        // The tile of an app with no windows left (windowID 0) stands for the app itself, so closing it quits
+        // the app, as the last window's close does on a Windows taskbar. A "Launch" tile has nothing to close.
+        if preview.windowID == 0 {
+            guard app.isRunning else { return }
+            AppLogger.shared.info("Closing the app tile for \(app.name): quitting it")
+            appManager.quitApp(app)
+            dismiss()
+            return
+        }
         appManager.closeWindow(
             windowID: preview.windowID,
             windowTitle: preview.title,

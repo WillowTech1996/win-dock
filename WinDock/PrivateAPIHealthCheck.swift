@@ -22,6 +22,8 @@ final class PrivateAPIHealthCheck: @unchecked Sendable {
         "CGSMainConnectionID",
         "CGSGetWindowLevel",
         "CGSHWCaptureWindowList",
+        "CGSCopySpacesForWindows",
+        "CGSCopyManagedDisplaySpaces",
         "_AXUIElementGetWindow",
         "_AXUIElementCreateWithRemoteToken",
         "_SLPSSetFrontProcessWithOptions",
