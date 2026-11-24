@@ -69,4 +69,27 @@ final class DisplayScopingTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(a.scoped(to: left, among: displays)).windows.map(\.windowID), [1, 3])
         XCTAssertEqual(try XCTUnwrap(a.scoped(to: right, among: displays)).windows.map(\.windowID), [2])
     }
+
+    // MARK: - Taskbar window reconciliation
+
+    func testHotPlugKeepsExistingWindowsAndCreatesOnlyTheNewOne() {
+        let changes = AppDelegate.displayChanges(existing: [1, 2], wanted: [1, 2, 3])
+
+        XCTAssertEqual(changes.create, [3])
+        XCTAssertTrue(changes.close.isEmpty)
+    }
+
+    func testUnplugClosesOnlyTheGoneDisplaysWindow() {
+        let changes = AppDelegate.displayChanges(existing: [1, 2, 3], wanted: [1, 3])
+
+        XCTAssertTrue(changes.create.isEmpty)
+        XCTAssertEqual(changes.close, [2])
+    }
+
+    func testNoChangeDoesNothing() {
+        let changes = AppDelegate.displayChanges(existing: [1, 2], wanted: [2, 1])
+
+        XCTAssertTrue(changes.create.isEmpty)
+        XCTAssertTrue(changes.close.isEmpty)
+    }
 }

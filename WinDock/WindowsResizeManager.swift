@@ -286,15 +286,19 @@ class WindowsResizeManager: ObservableObject {
                 }
 
                 guard newFrame != windowFrame else { continue }
+
+                // Right after wake or a display change an app's Accessibility windows can be missing for a
+                // few seconds. That is not the app refusing the move, so it must not use up an attempt:
+                // retry on the next sweep.
+                guard let axWindow = findAXWindow(for: app.processIdentifier, matchingCGFrame: windowFrame) else {
+                    AppLogger.shared.debug("No matching AX window yet for \(app.localizedName ?? "Unknown") at \(windowFrame); will retry")
+                    continue
+                }
+
                 let previousAttempts = rejectedAdjustments[windowID].flatMap { $0.frame == windowFrame ? $0.attempts : nil } ?? 0
                 rejectedAdjustments[windowID] = (windowFrame, previousAttempts + 1)
 
                 AppLogger.shared.info("Adjusting window for \(app.localizedName ?? "Unknown") from \(windowFrame) to \(newFrame). Resized: \(resized)")
-
-                guard let axWindow = findAXWindow(for: app.processIdentifier, matchingCGFrame: windowFrame) else {
-                    AppLogger.shared.error("Could not find matching AX window for \(app.localizedName ?? "Unknown")")
-                    continue
-                }
 
                 if resized {
                     if let sizeValue = AXValue.from(value: newFrame.size, type: .cgSize),

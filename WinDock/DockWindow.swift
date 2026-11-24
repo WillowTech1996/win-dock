@@ -30,7 +30,7 @@ class DockWindow: NSPanel {
     private var cancellables = Set<AnyCancellable>()
     private let fullscreenManager = FullscreenDetectionManager.shared
     private let visibilityManager = DockVisibilityManager.shared
-    private var targetDisplayID: CGDirectDisplayID?
+    private(set) var targetDisplayID: CGDirectDisplayID?
 
     private var targetScreen: NSScreen? {
         let matchingScreen = NSScreen.screens.first { $0.displayID == targetDisplayID }

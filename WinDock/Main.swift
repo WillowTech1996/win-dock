@@ -115,6 +115,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @AppStorage("dockPosition") var dockPosition: DockPosition = .bottom
     @AppStorage("showOnAllSpaces") private var showOnAllSpaces = true
     private var isUpdatingDockWindows = false
+    private var isSyncingDockWindows = false
+    private var resyncRequested = false
     private var lastDockPosition: DockPosition = .bottom
     private var lastDockSize: String = "medium"
     private var lastPaddingVertical: Double = 0.0
@@ -170,7 +172,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         
         // Setup the rest of the app
         setupStatusBarItem()
-        setupDockWindowsForAllScreens()
+        syncDockWindowsToScreens()
         
         // Start WindowsResizeManager if enabled in settings
         if UserDefaults.standard.bool(forKey: "enableWindowsResize") {
@@ -529,16 +531,52 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         
         // Small delay to ensure windows are fully closed
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            let targetScreens = self.showOnAllSpaces ? NSScreen.screens : Array(NSScreen.screens.prefix(1))
-            for screen in targetScreens {
-                let dockWindow = DockWindow(screen: screen)
-                let frame = dockFrame(for: self.dockPosition, screen: screen)
-                dockWindow.setFrame(frame, display: true)
-                dockWindow.show()
-                self.dockWindows.append(dockWindow)
-            }
+            self.syncDockWindowsToScreens()
             self.isUpdatingDockWindows = false
         }
+    }
+
+    /// Which displays need a new taskbar window and which existing windows' displays are gone.
+    static func displayChanges(existing: [CGDirectDisplayID], wanted: [CGDirectDisplayID])
+        -> (create: [CGDirectDisplayID], close: Set<CGDirectDisplayID>) {
+        (wanted.filter { !existing.contains($0) }, Set(existing).subtracting(wanted))
+    }
+
+    /// Makes the taskbar windows match the displays without touching the ones that are still valid, so a
+    /// hot-plug does not blank every display. Safe to call repeatedly (macOS posts several notifications).
+    private func syncDockWindowsToScreens() {
+        // Creating a window can let AppKit deliver another screen change before we have recorded it;
+        // a nested sync would then create a second window for the same display. Run again afterwards.
+        guard !isSyncingDockWindows else { resyncRequested = true; return }
+        isSyncingDockWindows = true
+        defer { isSyncingDockWindows = false }
+        repeat {
+            resyncRequested = false
+            reconcileDockWindows()
+        } while resyncRequested
+    }
+
+    private func reconcileDockWindows() {
+        let screens = (showOnAllSpaces ? NSScreen.screens : Array(NSScreen.screens.prefix(1))).filter { $0.displayID != nil }
+        let changes = Self.displayChanges(existing: dockWindows.compactMap(\.targetDisplayID),
+                                          wanted: screens.compactMap(\.displayID))
+
+        for window in dockWindows where window.targetDisplayID.map(changes.close.contains) ?? true {
+            window.orderOut(nil)
+            window.close()
+        }
+        dockWindows.removeAll { $0.targetDisplayID.map(changes.close.contains) ?? true }
+
+        for screen in screens {
+            guard let id = screen.displayID, changes.create.contains(id) else { continue }
+            let dockWindow = DockWindow(screen: screen)
+            dockWindow.setFrame(dockFrame(for: dockPosition, screen: screen), display: true)
+            dockWindow.show()
+            dockWindows.append(dockWindow)
+        }
+
+        let layout = dockWindows.map { "display \($0.targetDisplayID ?? 0) frame \($0.frame)" }.joined(separator: "; ")
+        AppLogger.shared.info("Taskbar windows synced to \(screens.count) display(s): created \(changes.create.count), closed \(changes.close.count), kept \(dockWindows.count - changes.create.count). \(layout)")
     }
 
     // Call this method whenever the dock position changes (from settings or menu)
@@ -562,7 +600,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc private func screenParametersDidChange() {
-        setupDockWindowsForAllScreens()
+        syncDockWindowsToScreens()
     }
     
     @objc private func userDefaultsDidChange() {
