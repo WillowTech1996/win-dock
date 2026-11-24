@@ -116,7 +116,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var dockWindows: [DockWindow] = []
     var statusBarItem: NSStatusItem?
     @AppStorage("dockPosition") var dockPosition: DockPosition = .bottom
-    @AppStorage("showOnAllSpaces") private var showOnAllSpaces = true
+    @AppStorage("showOnAllDisplays") private var showOnAllDisplays = true
     private var isUpdatingDockWindows = false
     private var isSyncingDockWindows = false
     private var resyncRequested = false
@@ -124,8 +124,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var lastDockSize: String = "medium"
     private var lastPaddingVertical: Double = 0.0
     private var lastPaddingHorizontal: Double = 0.0
-    private var lastShowOnAllSpaces = true
+    private var lastShowOnAllDisplays = true
     
+    /// Settings keys that were renamed. Copies the old value to the new key (the new key wins if both exist)
+    /// and removes the old one. Runs before anything reads settings.
+    static func migrateLegacySettings(in defaults: UserDefaults = .standard) {
+        for (old, new) in [("showOnAllSpaces", "showOnAllDisplays")] {
+            guard let value = defaults.object(forKey: old) else { continue }
+            if defaults.object(forKey: new) == nil { defaults.set(value, forKey: new) }
+            defaults.removeObject(forKey: old)
+        }
+    }
+
     /// `@AppStorage` defaults are not written to `UserDefaults`, so code that reads the key
     /// directly (`UserDefaults.standard.bool(forKey:)`) would see `false` on a fresh install.
     /// Registering the same defaults keeps both paths in agreement.
@@ -141,6 +151,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         AppDelegate.shared = self
         setGlobalErrorHandlers()
+        AppDelegate.migrateLegacySettings()
         AppDelegate.registerDefaultSettings()
 
         // Verify the private APIs this build links against still exist on this macOS.
@@ -153,7 +164,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         lastDockSize = UserDefaults.standard.string(forKey: "dockSize") ?? "medium"
         lastPaddingVertical = UserDefaults.standard.double(forKey: "paddingVertical")
         lastPaddingHorizontal = UserDefaults.standard.double(forKey: "paddingHorizontal")
-        lastShowOnAllSpaces = showOnAllSpaces
+        lastShowOnAllDisplays = showOnAllDisplays
         
         // Start background update manager for real-time clock and system info
         Task { @MainActor in
@@ -569,7 +580,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func reconcileDockWindows() {
-        let screens = (showOnAllSpaces ? NSScreen.screens : Array(NSScreen.screens.prefix(1))).filter { $0.displayID != nil }
+        let screens = (showOnAllDisplays ? NSScreen.screens : Array(NSScreen.screens.prefix(1))).filter { $0.displayID != nil }
         let changes = Self.displayChanges(existing: dockWindows.compactMap(\.targetDisplayID),
                                           wanted: screens.compactMap(\.displayID))
 
@@ -642,10 +653,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
            currentDockSize != lastDockSize ||
            currentPaddingVertical != lastPaddingVertical ||
            currentPaddingHorizontal != lastPaddingHorizontal ||
-           showOnAllSpaces != lastShowOnAllSpaces {
+           showOnAllDisplays != lastShowOnAllDisplays {
             
             lastDockPosition = dockPosition
-            lastShowOnAllSpaces = showOnAllSpaces
+            lastShowOnAllDisplays = showOnAllDisplays
             lastDockSize = currentDockSize
             lastPaddingVertical = currentPaddingVertical
             lastPaddingHorizontal = currentPaddingHorizontal

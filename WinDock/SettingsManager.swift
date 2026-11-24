@@ -5,7 +5,7 @@ struct AppSettings: Codable {
     var dockPosition: String = "bottom"
     var dockSize: String = "large"
     var autoHide: Bool = false
-    var showOnAllSpaces: Bool = true
+    var showOnAllDisplays: Bool = true
     var centerTaskbarIcons: Bool = true
     var showSystemTray: Bool = true
     var showTaskView: Bool = true
@@ -28,6 +28,14 @@ struct AppSettings: Codable {
     var version: String = "1.0"
 }
 
+private struct LegacyKey: CodingKey {
+    let stringValue: String
+    var intValue: Int? { nil }
+    init(_ name: String) { stringValue = name }
+    init?(stringValue: String) { self.stringValue = stringValue }
+    init?(intValue: Int) { nil }
+}
+
 extension AppSettings {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -35,7 +43,10 @@ extension AppSettings {
         dockPosition = try container.decodeIfPresent(String.self, forKey: .dockPosition) ?? defaults.dockPosition
         dockSize = try container.decodeIfPresent(String.self, forKey: .dockSize) ?? defaults.dockSize
         autoHide = try container.decodeIfPresent(Bool.self, forKey: .autoHide) ?? defaults.autoHide
-        showOnAllSpaces = try container.decodeIfPresent(Bool.self, forKey: .showOnAllSpaces) ?? defaults.showOnAllSpaces
+        // Backups made before the rename use the old name.
+        showOnAllDisplays = try container.decodeIfPresent(Bool.self, forKey: .showOnAllDisplays)
+            ?? decoder.container(keyedBy: LegacyKey.self).decodeIfPresent(Bool.self, forKey: LegacyKey("showOnAllSpaces"))
+            ?? defaults.showOnAllDisplays
         centerTaskbarIcons = try container.decodeIfPresent(Bool.self, forKey: .centerTaskbarIcons) ?? defaults.centerTaskbarIcons
         showSystemTray = try container.decodeIfPresent(Bool.self, forKey: .showSystemTray) ?? defaults.showSystemTray
         showTaskView = try container.decodeIfPresent(Bool.self, forKey: .showTaskView) ?? defaults.showTaskView
@@ -69,7 +80,7 @@ class SettingsManager: ObservableObject {
             dockPosition: userDefaults.string(forKey: "dockPosition") ?? "bottom",
             dockSize: userDefaults.string(forKey: "dockSize") ?? "large",
             autoHide: userDefaults.bool(forKey: "autoHide"),
-            showOnAllSpaces: userDefaults.object(forKey: "showOnAllSpaces") != nil ? userDefaults.bool(forKey: "showOnAllSpaces") : true,
+            showOnAllDisplays: userDefaults.object(forKey: "showOnAllDisplays") != nil ? userDefaults.bool(forKey: "showOnAllDisplays") : true,
             centerTaskbarIcons: userDefaults.object(forKey: "centerTaskbarIcons") != nil ? userDefaults.bool(forKey: "centerTaskbarIcons") : true,
             showSystemTray: userDefaults.object(forKey: "showSystemTray") != nil ? userDefaults.bool(forKey: "showSystemTray") : true,
             showTaskView: userDefaults.object(forKey: "showTaskView") != nil ? userDefaults.bool(forKey: "showTaskView") : true,
@@ -162,7 +173,7 @@ class SettingsManager: ObservableObject {
             userDefaults.set(settings.dockPosition, forKey: "dockPosition")
             userDefaults.set(settings.dockSize, forKey: "dockSize")
             userDefaults.set(settings.autoHide, forKey: "autoHide")
-            userDefaults.set(settings.showOnAllSpaces, forKey: "showOnAllSpaces")
+            userDefaults.set(settings.showOnAllDisplays, forKey: "showOnAllDisplays")
             userDefaults.set(settings.centerTaskbarIcons, forKey: "centerTaskbarIcons")
             userDefaults.set(settings.showSystemTray, forKey: "showSystemTray")
             userDefaults.set(settings.showTaskView, forKey: "showTaskView")
@@ -197,7 +208,7 @@ class SettingsManager: ObservableObject {
         
         // Remove all WinDock-related UserDefaults
         let keys = [
-            "dockPosition", "dockSize", "autoHide", "showOnAllSpaces", "taskbarPerDisplayWindows", "hideSystemDockWhileRunning", "centerTaskbarIcons",
+            "dockPosition", "dockSize", "autoHide", "showOnAllDisplays", "taskbarPerDisplayWindows", "hideSystemDockWhileRunning", "centerTaskbarIcons",
             "showSystemTray", "showTaskView", "combineTaskbarButtons", "useSmallTaskbarButtons",
             "taskbarTransparency", "showLabels", "animationSpeed", "use24HourClock", "dateFormat",
             "searchAppChoice", "defaultBrowser", "defaultTerminal", "logLevel",

@@ -38,7 +38,7 @@ I want a Windows-style taskbar on every screen of my Mac. The Dock can only live
 Test setup: laptop plus one external display, both arrangements (external above/left/right), plus unplug/replug while running.
 
 - [ ] Audit every `NSScreen.main` / `screens.first` / `prefix(1)` use and make them per-screen.
-- [ ] Rename `showOnAllSpaces` to something accurate (e.g. `showOnAllDisplays`) with a migration for the stored key; verify default behavior.
+- [x] Rename `showOnAllSpaces` to `showOnAllDisplays` with a migration for the stored key; verify default behavior. Done 2026-11-24: migrated at launch (new key wins, old removed), old settings backups still import; unit-tested.
 - [x] Per-screen window lists: option to show only windows that are on this display's taskbar (Windows' "show taskbar buttons on: taskbar where window is open"), default on. Implemented 2026-11-24 (`DockApp.scoped(to:among:)`, setting `taskbarPerDisplayWindows`, default on); unit-tested and confirmed working on two displays. Not yet in settings export/import.
 - [ ] Verify `WindowsResizeManager` coordinate conversion for displays with negative origins and different scales.
 - [x] Verify display hot-plug, sleep/wake, resolution change, and Spaces switching rebuild or reposition the windows without flicker or duplicates. Done 2026-11-24 and confirmed on two displays: taskbar windows are reconciled by display ID (no full rebuild), re-entrant sync guarded, resize retries after wake when AX is not ready.

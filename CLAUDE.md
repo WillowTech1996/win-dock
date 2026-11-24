@@ -72,7 +72,7 @@ Key files in `WinDock/`:
 
 ### Multi-monitor
 
-Each screen gets its own `DockWindow` and the `showOnAllSpaces` setting (default `true`, despite the name it controls all-screens) decides whether all `NSScreen.screens` or only the first get one. `NotificationPositionManager` and parts of `DockWindow` still use `NSScreen.main`; treat those as multi-monitor bugs when found. AppKit uses bottom-left origin, CoreGraphics/AX use top-left; `WindowsResizeManager` converts between them, so be careful with frames on non-primary displays.
+Each screen gets its own `DockWindow` and the `showOnAllDisplays` setting (default `true`; renamed from `showOnAllSpaces`, migrated at launch by `AppDelegate.migrateLegacySettings`) decides whether all `NSScreen.screens` or only the first get one. `NotificationPositionManager` and parts of `DockWindow` still use `NSScreen.main`; treat those as multi-monitor bugs when found. AppKit uses bottom-left origin, CoreGraphics/AX use top-left; `WindowsResizeManager` converts between them, so be careful with frames on non-primary displays.
 
 ### Private APIs (can break on any macOS update)
 
@@ -92,7 +92,7 @@ Needs Accessibility (core) and Automation/Apple Events (activate/hide/quit apps)
 - Window filtering is derived from AltTab (`isValidStandardWindow`): min size 100x50, standard/dialog subroles, special-cased apps. Add app quirks to `isSpecialApp()`.
 - Automation error `-1743` means the Automation permission is missing for that target app.
 - Respect Reduce Motion / Reduce Transparency and keep VoiceOver labels on new controls.
-- Settings use `@AppStorage`; add new keys with defaults and, if they affect windows, observe changes the way `showOnAllSpaces` does.
+- Settings use `@AppStorage`; add new keys with defaults and, if they affect windows, observe changes the way `showOnAllDisplays` does. When renaming a key, add it to `migrateLegacySettings` and keep the old name decodable in `AppSettings`.
 - `@AppStorage` defaults are not written to `UserDefaults`. Any key read via `UserDefaults.standard.bool/string(forKey:)` needs a matching entry in `AppDelegate.registerDefaultSettings()`, or fresh installs read the zero value (this silently disabled window-overlap prevention).
 
 ## Testing

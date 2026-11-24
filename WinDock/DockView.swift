@@ -6,7 +6,7 @@ struct DockView: View {
     /// The display this taskbar sits on; nil shows every app's windows (previews, single display).
     var displayID: CGDirectDisplayID? = nil
     @AppStorage("taskbarPerDisplayWindows") private var perDisplayWindows = true
-    @AppStorage("showOnAllSpaces") private var showOnAllDisplays = true
+    @AppStorage("showOnAllDisplays") private var showOnAllDisplays = true
     @State private var showingPreview = false
     @State private var previewWindow: NSWindow?
     @State private var showStartMenu = false
