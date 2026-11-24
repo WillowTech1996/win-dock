@@ -6,6 +6,7 @@ LOG_FILE="$HOME/Library/Logs/WinDock/app.log"
 mkdir -p "$HOME/Library/Logs/WinDock"
 touch "$LOG_FILE"
 echo "Logs will be written to $LOG_FILE"
+mkdir -p logs
 ln -sf "$LOG_FILE" ./logs/app.log
 
 build_and_run() {

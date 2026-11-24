@@ -14,7 +14,8 @@ Fork goals: a taskbar I can trust and run daily on a multi-monitor Mac, built an
 
 ```bash
 open WinDock.xcodeproj            # Xcode; ⌘R run, ⌘U test
-./build.sh                        # Release build into ./build (needs `gem install xcpretty`)
+./build.sh                        # Release build into ./build (xcpretty optional)
+./package.sh                      # Release build + ditto zip + signature verification
 ./open.sh                         # Open the built app
 ./run.sh                          # Build + run + tail logs; 'R'+Enter rebuilds, 'Q'+Enter quits
 xcodebuild test -scheme WinDock -destination 'platform=macOS'
@@ -35,7 +36,7 @@ tail -f ~/Library/Logs/WinDock/app.log
 macOS tracks Accessibility approval by code signature. If the signature changes between builds, the permission silently stops working and window detection returns nothing.
 
 - Use a stable signing identity for every local build (Xcode → WinDock target → Signing & Capabilities → Automatically manage signing, your own Team).
-- The project currently has upstream's `DEVELOPMENT_TEAM` and bundle ID `barnuri.WinDock`. Changing those to mine is the first task in `PLAN.md`. Do not ship or install a build under the upstream bundle ID.
+- Bundle ID is `WillowTech.WinDock`, Team `73GS6MJ4U5` (Personal Team). Changing either means re-granting Accessibility. Do not ship or install a build under the upstream bundle ID.
 - If the taskbar shows no windows after a rebuild, re-check Accessibility first (remove the entry, re-add, relaunch).
 
 ## Architecture
@@ -78,7 +79,7 @@ Each screen gets its own `DockWindow` and the `showOnAllSpaces` setting (default
 
 ### Permissions and entitlements
 
-Needs Accessibility (core) and Automation/Apple Events (activate/hide/quit apps). `WinDock.entitlements` upstream also requests Contacts (`addressbook`) and scripting targets for Finder, System Events, Teams, Slack, Mail, App Store. The sandbox is off. Treat every entitlement and scripting target as something to justify; do not add new ones without a note in `PLAN.md`.
+Needs Accessibility (core) and Automation/Apple Events (activate/hide/quit apps). `WinDock.entitlements` keeps apple-events plus scripting targets for Finder and System Events only; Contacts and the other targets were removed. The sandbox is off. Treat every entitlement and scripting target as something to justify; do not add new ones without a note in `PLAN.md`.
 
 ## Conventions and pitfalls
 
@@ -90,6 +91,7 @@ Needs Accessibility (core) and Automation/Apple Events (activate/hide/quit apps)
 - Automation error `-1743` means the Automation permission is missing for that target app.
 - Respect Reduce Motion / Reduce Transparency and keep VoiceOver labels on new controls.
 - Settings use `@AppStorage`; add new keys with defaults and, if they affect windows, observe changes the way `showOnAllSpaces` does.
+- `@AppStorage` defaults are not written to `UserDefaults`. Any key read via `UserDefaults.standard.bool/string(forKey:)` needs a matching entry in `AppDelegate.registerDefaultSettings()`, or fresh installs read the zero value (this silently disabled window-overlap prevention).
 
 ## Testing
 
@@ -97,8 +99,8 @@ Unit tests live in `WinDockTests/` (app manager, coordinator, enumeration, fulls
 
 ## Release
 
-`release.py` bumps the version, builds, zips, updates `homebrew-tap/Formula/windock.rb`, and creates a GitHub release. Do not run it as-is in this fork: it targets upstream's repo and tap, and its zip step breaks code signatures (see `PLAN.md`, Phase 1). Distribution for now is local builds only.
+Distribution is local builds only. `./package.sh` makes a signed zip and verifies it. Never copy files into the `.app` after building: that breaks the signature (this is what broke upstream's published zip). Bundle resources by placing them under `WinDock/`. `release.py` and the Homebrew tap were removed from this fork. Notarization needs a paid Developer ID account and is not set up.
 
 ## Docs
 
-`README.md`, `ROADMAP.md` (upstream near-term list), `IDEAS.md` (large idea backlog, not commitments), `Developer.md` (signing setup). `AGENTS.md`, `.github/copilot-instructions.md`, `.specify/` and `.claude/commands/speckit.*` are upstream tooling for other agents/workflows and can be removed from the fork if unused.
+`README.md`, `ROADMAP.md` (upstream near-term list), `IDEAS.md` (large idea backlog, not commitments), `Developer.md` (signing setup). Upstream's agent tooling (`AGENTS.md`, `.specify/`, speckit commands) has been removed.

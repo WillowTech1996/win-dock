@@ -35,3 +35,5 @@ __pycache__
 specs
 **/agent-spec
 .retrospect
+# Claude Code local config (CLAUDE.md stays tracked)
+.claude/

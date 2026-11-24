@@ -1176,12 +1176,12 @@ struct AboutTab: View {
     
     private var appLinks: some View {
         HStack {
-            Link("GitHub Repository", destination: URL(string: "https://github.com/barnuri/win-dock")!)
+            Link("GitHub Repository", destination: URL(string: "https://github.com/WillowTech1996/win-dock")!)
                 .buttonStyle(.link)
             
             Spacer()
             
-            Link("Report Issue", destination: URL(string: "https://github.com/barnuri/win-dock/issues")!)
+            Link("Report Issue", destination: URL(string: "https://github.com/WillowTech1996/win-dock/issues")!)
                 .buttonStyle(.link)
         }
     }

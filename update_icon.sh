@@ -4,7 +4,7 @@
 set -e
 
 # Source icon
-SOURCE_ICON="icon.png"
+SOURCE_ICON="WinDock/icon.png"
 
 # Check if source icon exists
 if [ ! -f "$SOURCE_ICON" ]; then

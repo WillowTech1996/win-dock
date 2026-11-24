@@ -1,29 +1,16 @@
 #!/bin/bash
-
+# Release build into ./build. Output is prettified if `xcpretty` is installed (gem install xcpretty).
+# Do not modify the .app after this step: any change inside the bundle breaks the code signature.
 set -e
-rm -rf build/Build/Products/Release || true # Clean previous build artifacts
+set -o pipefail
 
-# Only show errors from xcodebuild (no grep, use xcodebuild options)
-xcodebuild -scheme WinDock -configuration Release -derivedDataPath build -quiet -showBuildTimingSummary -hideShellScriptEnvironment | xcpretty
-if [ ${PIPESTATUS[0]} -ne 0 ]; then
-    exit ${PIPESTATUS[0]}
-fi
+rm -rf build/Build/Products/Release || true
 
-# Copy icon.png to the app's resources directory
-if [ -f "icon.png" ]; then
-    APP_PATH=$(find build/Build/Products -name "*.app" | head -n 1)
-    if [ -n "$APP_PATH" ]; then
-        RESOURCES_PATH="$APP_PATH/Contents/Resources"
-        echo "Copying icon.png to $RESOURCES_PATH..."
-        cp icon.png "$RESOURCES_PATH/"
-        echo "Icon successfully copied to app bundle."
-    else
-        echo "Warning: Could not find the built app bundle. Icon not copied."
-    fi
-else
-    echo "Warning: icon.png not found. Icon not copied to app bundle."
-fi
+PRETTY=cat
+command -v xcpretty >/dev/null && PRETTY=xcpretty
+xcodebuild -scheme WinDock -configuration Release -derivedDataPath build -quiet -allowProvisioningUpdates | $PRETTY
 
-echo "build finished successfully"
-echo "to open the app, run:"
-echo "open build/Build/Products/Release/WinDock.app"
+APP=build/Build/Products/Release/WinDock.app
+codesign --verify --deep --strict "$APP"
+echo "build finished successfully (signature verified)"
+echo "to open the app, run: open $APP"

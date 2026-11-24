@@ -4,25 +4,23 @@ A feature-rich macOS SwiftUI application that emulates the Windows 11 style task
 
 ![Win Dock Taskbar](screenshots/dock.png)
 
-## 🍺 Quick Install
-
-```bash
-brew tap barnuri/brew
-brew install barnuri/brew/windock --no-quarantine
-```
+> Personal fork of [barnuri/win-dock](https://github.com/barnuri/win-dock) (MIT). Local builds only for now; see `PLAN.md` for the roadmap.
 
 ## Requirements
 
--   macOS 14 Sonoma or later
--   Xcode 15 or newer (Swift 5.9)
+-   macOS 15 Sequoia or later
+-   Xcode (current release)
+-   Your own signing identity (a free Personal Team is enough for local use)
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/barnuri/win-dock.git
+git clone https://github.com/WillowTech1996/win-dock.git
 cd win-dock
-./run.sh
+open WinDock.xcodeproj   # set your Team in Signing & Capabilities, then ⌘R
 ```
+
+Grant **Accessibility** when prompted. See `Developer.md` for signing details.
 
 ## Screenshots
 
@@ -75,65 +73,30 @@ cd win-dock
 
 -   Runs as background accessory app
 -   Status bar menu for quick access
--   Multi-monitor support
+-   Multi-monitor support (one taskbar per display)
 -   All Spaces support
 -   Settings import/export for backup and sharing
 -   Advanced logging for troubleshooting
 
-## Installation
+## Building
 
-### Method 1: Homebrew (Recommended)
-
-Install WinDock using Homebrew tap:
+### Xcode
 
 ```bash
-brew tap barnuri/brew
-brew install barnuri/brew/windock --no-quarantine
-```
-
-After installation, you can run WinDock with:
-
-```bash
-open "$(brew --prefix)/WinDock.app"
-```
-
-Or create a symlink to Applications:
-
-```bash
-ln -sf "$(brew --prefix)/WinDock.app" /Applications/WinDock.app
-```
-
-#### Migrating from Cask
-
-If you previously installed WinDock via cask, use the migration script:
-
-```bash
-./migrate_to_tap.sh
-```
-
-### Method 2: Using the Run Script
-
-```bash
-git clone https://github.com/barnuri/win-dock.git
-cd win-dock
-./run.sh
-```
-
-### Method 3: Build and Run in Xcode
-
-```bash
-git clone https://github.com/barnuri/win-dock.git
-cd win-dock
 open WinDock.xcodeproj
 ```
 
-Then press ⌘R to build and run the app.
+Set your Team under Signing & Capabilities, then press ⌘R.
 
-### Method 4: Download Release
+### Command line
 
-1. Go to the [Releases](https://github.com/barnuri/win-dock/releases) page
-2. Download the latest version
-3. Move to Applications folder and launch
+```bash
+./run.sh       # build, run, and tail logs
+./build.sh     # Release build into ./build
+./package.sh   # Release build + signed zip (build/WinDock.zip), signature verified
+```
+
+The zip is signed with your development certificate and is not notarized, so it will run on your own Mac only.
 
 ## Contributing
 
