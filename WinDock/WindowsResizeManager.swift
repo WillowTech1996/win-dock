@@ -168,21 +168,13 @@ class WindowsResizeManager: ObservableObject {
         }
     }
     
-    /// Checks if window resizing should be disabled based on dock hiding or fullscreen state
+    /// Checks if window resizing should be disabled globally (auto-hide). Fullscreen is handled per display in the loop below.
     private func shouldDisableResizing() -> Bool {
         // Check if WinDock auto-hide is enabled and dock is currently hidden
         let autoHide = UserDefaults.standard.bool(forKey: "autoHide")
         
-        // Check if there's a fullscreen window
-        let hasFullscreenWindow = fullscreenManager.hasFullscreenWindow
-               
         if autoHide {
             AppLogger.shared.debug("Window resizing disabled: WinDock auto-hide is enabled")
-            return true
-        }
-        
-        if hasFullscreenWindow {
-            AppLogger.shared.debug("Window resizing disabled: Fullscreen window detected")
             return true
         }
         
@@ -240,6 +232,8 @@ class WindowsResizeManager: ObservableObject {
             }
 
             for (screen, dockAreaCG) in dockAreasCG {
+                // The taskbar is hidden on a display with a fullscreen window, so leave that display alone.
+                if fullscreenManager.isFullscreen(on: screen.displayID) { continue }
                 let screenFrameCG = CGRect(
                     x: screen.frame.minX,
                     y: mainScreenHeight - screen.frame.maxY,

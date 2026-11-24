@@ -2,6 +2,13 @@ import SwiftUI
 
 // Function to calculate dock frame based on position and screen
 // Moved from SettingsView.swift to make it globally accessible
+extension NSScreen {
+    /// The CoreGraphics display ID, comparable with `CGDisplayBounds` and `CGGetActiveDisplayList`.
+    var displayID: CGDirectDisplayID? {
+        deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+    }
+}
+
 func dockFrame(for position: DockPosition, screen: NSScreen) -> NSRect {
     let visibleFrame = screen.visibleFrame
     let dockHeight: CGFloat = getDockHeight()

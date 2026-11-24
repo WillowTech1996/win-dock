@@ -72,7 +72,8 @@ class DockVisibilityManager: ObservableObject {
         isManuallyHidden = false
         
         for windowRef in dockWindows {
-            guard let window = windowRef.value else { continue }
+            // A taskbar hidden by a fullscreen window on its own display stays hidden until that ends.
+            guard let window = windowRef.value, !window.isHiddenForFullscreen else { continue }
             
             // Bring window back on screen first
             window.orderFront(nil)
@@ -86,45 +87,6 @@ class DockVisibilityManager: ObservableObject {
         }
         
         AppLogger.shared.info("All dock windows manually shown via DockVisibilityManager")
-    }
-    
-    func hideForFullscreen() {
-        cleanupWeakReferences()
-        guard isVisible && !isManuallyHidden, !dockWindows.isEmpty else { return }
-        
-        isVisible = false
-        // Don't set isManuallyHidden = true for fullscreen auto-hide
-        
-        for windowRef in dockWindows {
-            guard let window = windowRef.value else { continue }
-            
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.3
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                window.animator().alphaValue = 0.0
-            }
-        }
-        
-        AppLogger.shared.info("All dock windows hidden for fullscreen")
-    }
-    
-    func showAfterFullscreen() {
-        cleanupWeakReferences()
-        guard !isVisible && !isManuallyHidden, !dockWindows.isEmpty else { return }
-        
-        isVisible = true
-        
-        for windowRef in dockWindows {
-            guard let window = windowRef.value else { continue }
-            
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.3
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                window.animator().alphaValue = 1.0
-            }
-        }
-        
-        AppLogger.shared.info("All dock windows shown after fullscreen")
     }
     
     var visibilityDisplayName: String {

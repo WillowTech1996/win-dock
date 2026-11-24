@@ -42,7 +42,7 @@ Test setup: laptop plus one external display, both arrangements (external above/
 - [ ] Per-screen window lists: option to show only windows that are on this display's taskbar (Windows' "show taskbar buttons on: taskbar where window is open"), default on.
 - [ ] Verify `WindowsResizeManager` coordinate conversion for displays with negative origins and different scales.
 - [ ] Verify display hot-plug, sleep/wake, resolution change, and Spaces switching rebuild or reposition the windows without flicker or duplicates.
-- [ ] Verify fullscreen detection is per display (fullscreen on one screen should not hide the bar on the other).
+- [x] Verify fullscreen detection is per display (fullscreen on one screen should not hide the bar on the other). Done 2026-11-24 and confirmed on two displays. Per-display set of fullscreen display IDs; native fullscreen with the menu bar kept visible is detected via AXFullScreen (bounds alone can't tell it from a zoomed window); window names are not required (they need Screen Recording).
 - [ ] Auto-hide and the macOS menu bar/Dock interaction on secondary displays. Hide the system Dock while WinDock runs (there is `MacOSDockManager.swift`); restore on quit and on crash.
 - [ ] Unit tests for the screen/geometry logic (pure functions, injectable screen lists).
 

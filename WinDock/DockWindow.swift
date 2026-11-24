@@ -86,10 +86,10 @@ class DockWindow: NSPanel {
         fullscreenManager.startMonitoring()
         
         // Subscribe to fullscreen state changes
-        fullscreenManager.$hasFullscreenWindow
+        fullscreenManager.$fullscreenDisplayIDs
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] hasFullscreen in
-                self?.handleFullscreenStateChange(hasFullscreen)
+            .sink { [weak self] displayIDs in
+                self?.handleFullscreenStateChange(displayIDs)
             }
             .store(in: &cancellables)
 
@@ -115,16 +115,30 @@ class DockWindow: NSPanel {
         setupTrackingArea()
     }
     
-    private func handleFullscreenStateChange(_ hasFullscreen: Bool) {
-        if hasFullscreen {
-            // Always hide dock when there's a fullscreen window (Windows-like behavior)
-            // Use the visibility manager's dedicated fullscreen method
-            visibilityManager.hideForFullscreen()
-            AppLogger.shared.info("Dock hidden due to fullscreen window")
-        } else {
-            // Show dock when no fullscreen windows, unless manually hidden
-            visibilityManager.showAfterFullscreen()
-            AppLogger.shared.debug("Dock shown - no fullscreen windows")
+    /// True while a fullscreen window on this window's own display has hidden the taskbar.
+    private(set) var isHiddenForFullscreen = false
+
+    private func handleFullscreenStateChange(_ fullscreenDisplayIDs: Set<CGDirectDisplayID>) {
+        let shouldHide = targetDisplayID.map { fullscreenDisplayIDs.contains($0) } ?? false
+        guard shouldHide != isHiddenForFullscreen else { return }
+        isHiddenForFullscreen = shouldHide
+
+        if shouldHide {
+            // Windows-like behavior: the taskbar on a display steps aside for a fullscreen window on that display only.
+            hideTimer?.invalidate()
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.3
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                animator().alphaValue = 0.0
+            }
+            AppLogger.shared.info("Taskbar hidden for fullscreen window on display \(targetDisplayID.map(String.init) ?? "unknown")")
+        } else if visibilityManager.isVisible && !visibilityManager.isManuallyHidden {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.3
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                animator().alphaValue = 1.0
+            }
+            AppLogger.shared.info("Taskbar shown after fullscreen on display \(targetDisplayID.map(String.init) ?? "unknown")")
         }
     }
     override var canBecomeKey: Bool { false }
@@ -140,7 +154,7 @@ class DockWindow: NSPanel {
     
     private func handleAutoHideSettingChange() {
         // If auto-hide is off, ensure the dock is fully visible
-        if !autoHide && visibilityManager.isVisible && alphaValue < 1.0 {
+        if !autoHide && visibilityManager.isVisible && !isHiddenForFullscreen && alphaValue < 1.0 {
             hideTimer?.invalidate()
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.2
@@ -169,7 +183,7 @@ class DockWindow: NSPanel {
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
         hideTimer?.invalidate()
-        if autoHide {
+        if autoHide && !isHiddenForFullscreen {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.2
                 animator().alphaValue = 1.0
@@ -274,13 +288,13 @@ class DockWindow: NSPanel {
     }
     
     private static func displayID(of screen: NSScreen) -> CGDirectDisplayID? {
-        screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+        screen.displayID
     }
     
     func cleanup() {
-        // appManager is shared across all dock windows and lives for the app's lifetime — do not
-        // stop it here or closing one window (e.g. a disconnected monitor) freezes the others.
-        fullscreenManager.stopMonitoring()
+        // appManager and fullscreenManager are shared across all dock windows and live for the app's
+        // lifetime — do not stop them here, or closing one window (e.g. a disconnected monitor, or the
+        // old windows being replaced on a screen change) freezes the others.
         cancellables.removeAll()
     }
     
