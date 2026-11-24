@@ -25,9 +25,9 @@ I want a Windows-style taskbar on every screen of my Mac. The Dock can only live
 
 ## Phase 1: Make it mine and make it safe (1 to 2 days)
 
-- [ ] Change bundle ID (e.g. `com.<me>.WinDock`) and DEVELOPMENT_TEAM to mine in all three targets; update `Info.plist`/UserDefaults domain consumers.
-- [ ] Sign with a stable identity so Accessibility approval survives rebuilds. Personal team is enough for local use. Notarization and distribution need a paid Developer ID account; decide later whether that is worth it for a hobby fork.
-- [ ] Trim entitlements: remove `personal-information.addressbook` and unused scripting targets; confirm each remaining Apple Events target is actually used in code. Re-test activate/hide/quit.
+- [x] Change bundle ID (e.g. `com.<me>.WinDock`) and DEVELOPMENT_TEAM to mine in all three targets; update `Info.plist`/UserDefaults domain consumers.
+- [x] Sign with a stable identity so Accessibility approval survives rebuilds. Personal team is enough for local use. Notarization and distribution need a paid Developer ID account; decide later whether that is worth it for a hobby fork.
+- [x] Trim entitlements: remove `personal-information.addressbook` and unused scripting targets; confirm each remaining Apple Events target is actually used in code. Re-test activate/hide/quit.
 - [ ] Remove or disable features that need extra permissions I don't want (notification repositioning, user profile/contacts) behind a setting, off by default.
 - [ ] Fix packaging: replace `shutil.make_archive` with `ditto -c -k --keepParent` (or build a DMG), then verify with `codesign --verify --deep --strict` and `spctl -a -vv` before any release. Remove the Homebrew tap and upstream repo references from `release.py`, or delete `release.py` and package by hand.
 - [ ] Fix doc drift: README requirements, deployment target, `Developer.md`.

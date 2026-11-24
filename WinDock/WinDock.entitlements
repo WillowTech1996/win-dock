@@ -8,8 +8,6 @@
 	<false/>
 	<key>com.apple.security.automation.apple-events</key>
 	<true/>
-	<key>com.apple.security.personal-information.addressbook</key>
-	<true/>
 	<key>com.apple.security.scripting-targets</key>
 	<dict>
 		<key>com.apple.finder</key>
@@ -19,26 +17,6 @@
 		<key>com.apple.systemevents</key>
 		<array>
 			<string>com.apple.systemevents</string>
-		</array>
-		<key>com.microsoft.teams2</key>
-		<array>
-			<string>com.microsoft.teams2</string>
-		</array>
-		<key>com.microsoft.teams</key>
-		<array>
-			<string>com.microsoft.teams</string>
-		</array>
-		<key>com.slack.client</key>
-		<array>
-			<string>com.slack.client</string>
-		</array>
-		<key>com.apple.mail</key>
-		<array>
-			<string>com.apple.mail</string>
-		</array>
-		<key>com.apple.AppStore</key>
-		<array>
-			<string>com.apple.AppStore</string>
 		</array>
 	</dict>
 </dict>
