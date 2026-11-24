@@ -33,7 +33,7 @@ class DockWindow: NSPanel {
     private var targetDisplayID: CGDirectDisplayID?
 
     private var targetScreen: NSScreen? {
-        let matchingScreen = NSScreen.screens.first { DockWindow.displayID(of: $0) == targetDisplayID }
+        let matchingScreen = NSScreen.screens.first { $0.displayID == targetDisplayID }
         return matchingScreen ?? screen ?? NSScreen.main
     }
     
@@ -42,7 +42,7 @@ class DockWindow: NSPanel {
                   styleMask: [.borderless, .nonactivatingPanel],
                   backing: .buffered,
                   defer: false)
-        targetDisplayID = screen.flatMap { DockWindow.displayID(of: $0) }
+        targetDisplayID = screen?.displayID
         if !isPreview {
             setup()
         }
@@ -74,7 +74,9 @@ class DockWindow: NSPanel {
         // Set a proper window title for app switcher
         self.title = "WinDock Taskbar"
 
-        alphaValue = visibilityManager.isVisible ? 1.0 : 0.0
+        // Start hidden if our display is already fullscreen; the flag must match so a later update isn't skipped.
+        isHiddenForFullscreen = fullscreenManager.isFullscreen(on: targetDisplayID)
+        alphaValue = visibilityManager.isVisible && !isHiddenForFullscreen ? 1.0 : 0.0
         
         updatePosition()
         appManager.startMonitoring()
@@ -285,10 +287,6 @@ class DockWindow: NSPanel {
         }
         
         setupTrackingArea()
-    }
-    
-    private static func displayID(of screen: NSScreen) -> CGDirectDisplayID? {
-        screen.displayID
     }
     
     func cleanup() {

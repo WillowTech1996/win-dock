@@ -6,7 +6,6 @@ class FullscreenDetectionManager: ObservableObject {
     
     /// Displays that currently have a fullscreen window on them (CoreGraphics display IDs).
     @Published private(set) var fullscreenDisplayIDs: Set<CGDirectDisplayID> = []
-    var hasFullscreenWindow: Bool { !fullscreenDisplayIDs.isEmpty }
     private var monitoringTimer: Timer?
     private var isRunning = false
     private var startupTime: Date?
@@ -14,6 +13,12 @@ class FullscreenDetectionManager: ObservableObject {
     private static let maxDisplayCount: UInt32 = 32
     private static let boundsTolerance: CGFloat = 2
     
+    /// Serial, so a slow check can never finish after (and overwrite) a newer one.
+    private let detectionQueue = DispatchQueue(label: "WinDock.fullscreen-detection", qos: .utility)
+
+    /// Main-thread only. A hung app can make a check slow; skip new ones instead of queueing them up.
+    private var checkInFlight = false
+
     private init() {}
 
     func isFullscreen(on displayID: CGDirectDisplayID?) -> Bool {
@@ -45,21 +50,21 @@ class FullscreenDetectionManager: ObservableObject {
         // Listen for app activation and Space changes for immediate, event-driven updates
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(appDidBecomeActive),
+            selector: #selector(scheduleCheck),
             name: NSApplication.didBecomeActiveNotification,
             object: nil
         )
 
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(appDidResignActive),
+            selector: #selector(scheduleCheck),
             name: NSApplication.didResignActiveNotification,
             object: nil
         )
 
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
-            selector: #selector(appDidBecomeActive),
+            selector: #selector(activeSpaceDidChange),
             name: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil
         )
@@ -79,16 +84,16 @@ class FullscreenDetectionManager: ObservableObject {
         AppLogger.shared.info("FullscreenDetectionManager stopped monitoring")
     }
     
-    @objc private func appDidBecomeActive() {
-        // Check immediately when an app becomes active
+    @objc private func scheduleCheck() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             self?.checkForFullscreenWindows()
         }
     }
 
-    @objc private func appDidResignActive() {
-        // Check when an app resigns active status
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+    @objc private func activeSpaceDidChange() {
+        scheduleCheck()
+        // Entering fullscreen animates for about a second; the first check sees the window mid-animation.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             self?.checkForFullscreenWindows()
         }
     }
@@ -99,18 +104,16 @@ class FullscreenDetectionManager: ObservableObject {
             return
         }
 
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        guard !checkInFlight else { return }
+        checkInFlight = true
+        detectionQueue.async { [weak self] in
             let detected = Self.detectFullscreenDisplays(displays: Self.activeDisplays())
             DispatchQueue.main.async {
                 guard let self = self else { return }
+                self.checkInFlight = false
                 guard self.fullscreenDisplayIDs != detected else { return }
                 self.fullscreenDisplayIDs = detected
                 AppLogger.shared.info("Fullscreen displays changed: \(detected.sorted())")
-                NotificationCenter.default.post(
-                    name: NSNotification.Name("FullscreenStateChanged"),
-                    object: nil,
-                    userInfo: ["hasFullscreen": !detected.isEmpty, "displayIDs": detected]
-                )
             }
         }
     }
@@ -131,10 +134,6 @@ class FullscreenDetectionManager: ObservableObject {
             abs(window.height - display.height) <= boundsTolerance &&
             abs(window.origin.x - display.origin.x) <= boundsTolerance &&
             abs(window.origin.y - display.origin.y) <= boundsTolerance
-    }
-
-    static func windowMatchesAnyDisplay(_ windowBounds: CGRect, displayBounds: [CGRect]) -> Bool {
-        displayBounds.contains { windowMatches(windowBounds, display: $0) }
     }
 
     /// How a window sits relative to a display, in CG global coordinates.
