@@ -98,6 +98,7 @@ struct GeneralSettingsTab: View {
     @AppStorage("dockSize") private var dockSize: DockSize = .large
     @AppStorage("autoHide") private var autoHide = false
     @AppStorage("showOnAllSpaces") private var showOnAllSpaces = true
+    @AppStorage("taskbarPerDisplayWindows") private var taskbarPerDisplayWindows = true
     @AppStorage("centerTaskbarIcons") private var centerTaskbarIcons = true
     @AppStorage("showSystemTray") private var showSystemTray = true
     @AppStorage("showTaskView") private var showTaskView = true
@@ -155,6 +156,8 @@ struct GeneralSettingsTab: View {
         Section("Taskbar Behavior") {
             Toggle("Automatically hide the taskbar", isOn: $autoHide)
             Toggle("Show taskbar on all displays", isOn: $showOnAllSpaces)
+            Toggle("Show windows only on the taskbar of their display", isOn: $taskbarPerDisplayWindows)
+                .disabled(!showOnAllSpaces)
             Toggle("Center taskbar icons", isOn: $centerTaskbarIcons)
                 .disabled(dockPosition == .left || dockPosition == .right)
             Toggle("Show system tray", isOn: $showSystemTray)

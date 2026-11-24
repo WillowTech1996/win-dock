@@ -3,6 +3,10 @@ import AppKit
 
 struct DockView: View {
     @ObservedObject var appManager: AppManager
+    /// The display this taskbar sits on; nil shows every app's windows (previews, single display).
+    var displayID: CGDirectDisplayID? = nil
+    @AppStorage("taskbarPerDisplayWindows") private var perDisplayWindows = true
+    @AppStorage("showOnAllSpaces") private var showOnAllDisplays = true
     @State private var showingPreview = false
     @State private var previewWindow: NSWindow?
     @State private var showStartMenu = false
@@ -145,11 +149,22 @@ struct DockView: View {
         return AppLogger.executeAppleScript(script, description: "DockView") != nil
     }
 
+    /// Apps this taskbar shows, each paired with its index in the full `dockApps` list: drag-and-drop
+    /// positions are indices into that full list, so they stay right when some apps are hidden here.
+    private var visibleApps: [(offset: Int, element: DockApp)] {
+        let apps = Array(appManager.dockApps.enumerated())
+        // With one display, or taskbars only on the first, scoping would hide windows with nowhere to show them.
+        guard perDisplayWindows, showOnAllDisplays, let displayID, NSScreen.screens.count > 1 else { return apps }
+        let displays = FullscreenDetectionManager.activeDisplays().map(\.bounds)
+        let here = CGDisplayBounds(displayID)
+        return apps.compactMap { index, app in app.scoped(to: here, among: displays).map { (offset: index, element: $0) } }
+    }
+
     @ViewBuilder
     private var dockIconsSection: some View {
         if dockPosition == .bottom || dockPosition == .top {
             HStack(spacing: 2) {
-                ForEach(Array(appManager.dockApps.enumerated()), id: \.element.id) { index, app in
+                ForEach(visibleApps, id: \.element.id) { index, app in
                     HStack(spacing: 0) {
                         // Insertion indicator before the icon
                         Rectangle()
@@ -189,7 +204,7 @@ struct DockView: View {
             }
         } else {
             VStack(spacing: 2) {
-                ForEach(Array(appManager.dockApps.enumerated()), id: \.element.id) { index, app in
+                ForEach(visibleApps, id: \.element.id) { index, app in
                     VStack(spacing: 0) {
                         // Insertion indicator before the icon
                         Rectangle()

@@ -147,7 +147,7 @@ class DockWindow: NSPanel {
     override var canBecomeMain: Bool { false }
     
     private func setupDockView() {
-        let dockView = DockView(appManager: appManager)
+        let dockView = DockView(appManager: appManager, displayID: targetDisplayID)
         let hostingView = NSHostingView(rootView: dockView)
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         contentView = hostingView

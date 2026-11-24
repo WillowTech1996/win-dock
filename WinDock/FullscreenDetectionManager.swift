@@ -120,7 +120,7 @@ class FullscreenDetectionManager: ObservableObject {
 
     typealias DisplayInfo = (id: CGDirectDisplayID, bounds: CGRect)
 
-    private static func activeDisplays() -> [DisplayInfo] {
+    static func activeDisplays() -> [DisplayInfo] {
         var displayIDs = [CGDirectDisplayID](repeating: 0, count: Int(maxDisplayCount))
         var displayCount: UInt32 = 0
         guard CGGetActiveDisplayList(maxDisplayCount, &displayIDs, &displayCount) == .success else {

@@ -169,6 +169,8 @@ struct DockApp: Identifiable, Hashable {
     var hasNotifications: Bool = false
     /// Extra processes sharing this bundle id (e.g. a Playwright Chrome with its own --user-data-dir).
     var additionalProcesses: [NSRunningApplication] = []
+    /// Set on the copy a per-display taskbar shows: only windows on this display (CG coordinates) count.
+    var displayBounds: CGRect?
 
     var processes: [NSRunningApplication] {
         (runningApplication.map { [$0] } ?? []) + additionalProcesses
@@ -179,7 +181,8 @@ struct DockApp: Identifiable, Hashable {
     }
 
     var isActive: Bool {
-        return processes.contains { $0.isActive }
+        // On a display where the app has no windows, it is not "active" there even if it is frontmost elsewhere.
+        return processes.contains { $0.isActive } && (displayBounds == nil || hasWindows)
     }
 
     var hasWindows: Bool { 
@@ -209,6 +212,17 @@ struct DockApp: Identifiable, Hashable {
         return processes.first { $0.processIdentifier == ownerPID } ?? runningApplication
     }
     
+    /// This app as the taskbar on `display` should show it, or nil if it has no place there: an
+    /// unpinned app whose windows are all on other displays. Pinned apps always stay, and an app with
+    /// no windows anywhere is unchanged (as before per-display lists).
+    func scoped(to display: CGRect, among displays: [CGRect]) -> DockApp? {
+        guard !windows.isEmpty else { return self }
+        var copy = self
+        copy.displayBounds = display
+        copy.windows = windows.filter { $0.isOn(display, among: displays) }
+        return isPinned || !copy.windows.isEmpty ? copy : nil
+    }
+
     func hash(into hasher: inout Hasher) {
         hasher.combine(bundleIdentifier)
     }
@@ -224,6 +238,13 @@ struct WindowInfo {
     let bounds: CGRect
     let isMinimized: Bool
     let isOnScreen: Bool
+
+    /// A window belongs to the display holding its center, like macOS places it. A window whose center
+    /// is on no display (stale or off-screen) belongs to every display, so it can't become unreachable.
+    func isOn(_ display: CGRect, among displays: [CGRect]) -> Bool {
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        return display.contains(center) || !displays.contains { $0.contains(center) }
+    }
 }
 
 @MainActor
@@ -546,6 +567,10 @@ class AppManager: ObservableObject {
         for process in app.processes {
             await windowService.invalidateCache(for: process)
             windows += await windowService.getWindows(for: process)
+        }
+        if let display = app.displayBounds {
+            let displays = FullscreenDetectionManager.activeDisplays().map(\.bounds)
+            windows = windows.filter { $0.isOn(display, among: displays) }
         }
         return windows
     }
